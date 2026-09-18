@@ -1,8 +1,25 @@
 # Sonara 🎵
 
-**Sonara** is a modern, customizable music player built with **Flutter**, focused on providing a simple and complete experience for managing and playing local music.
+**Sonara** is a modern and customizable music player built with **Flutter**, focused on providing a simple and complete experience for managing and playing local music.
 
 It supports music libraries, playlists, favorites, metadata, album artwork, YouTube search, downloads, and Android media controls.
+
+## 📸 Screenshots
+
+### Android
+
+<p align="center">
+  <img src="screenshots/home-android.png" width="30%">
+  <img src="screenshots/player-android.png" width="30%">
+  <img src="screenshots/search-android.png" width="30%">
+</p>
+
+### Linux / Desktop
+
+<p align="center">
+  <img src="screenshots/home-pc.png" width="45%">
+  <img src="screenshots/player-pc.png" width="45%">
+</p>
 
 ## ✨ Features
 
@@ -59,8 +76,9 @@ Sonara is primarily built using:
 
 * Flutter SDK
 * Dart SDK
-* Android Studio or the required Android development tools
+* Android Studio or the required Android development tools for Android development
 * An Android device/emulator for Android development
+* `mpv` and `libmpv-dev` for Linux
 
 ### Clone the repository
 
@@ -73,6 +91,14 @@ cd sonara
 
 ```bash
 flutter pub get
+```
+
+### Linux dependencies
+
+On Debian/Ubuntu-based distributions, install the required dependencies:
+
+```bash
+sudo apt install mpv libmpv-dev
 ```
 
 ### Run the application
@@ -93,6 +119,40 @@ The generated APK will be located at:
 
 ```text
 build/app/outputs/flutter-apk/app-release.apk
+```
+
+## 🐧 Build Sonara for Linux
+
+To build the Linux release:
+
+```bash
+flutter build linux --release
+```
+
+The generated application will be located in:
+
+```text
+build/linux/x64/release/bundle/
+```
+
+### 📦 Package Sonara as a `.deb`
+
+To create a Debian package, install Flutter Distributor:
+
+```bash
+dart pub global activate flutter_distributor
+```
+
+Add the Dart global binaries to your `PATH`:
+
+```bash
+export PATH="$PATH:$HOME/.pub-cache/bin"
+```
+
+Then package Sonara as a `.deb`:
+
+```bash
+fastforge package --platform linux --targets deb
 ```
 
 ## 🎯 Project Goals
