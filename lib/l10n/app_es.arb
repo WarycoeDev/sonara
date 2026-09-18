@@ -1,0 +1,300 @@
+{
+  "@@locale": "es",
+
+  "appName": "Sonara",
+
+  "appearance": "Apariencia",
+  "appearanceMode": "Modo de apariencia",
+  "system": "Sistema",
+  "light": "Claro",
+  "dark": "Oscuro",
+  "accentColor": "Color de acento",
+  "colorSonara": "Sonara",
+  "colorVioleta": "Violeta",
+  "colorEsmeralda": "Esmeralda",
+  "colorNaranja": "Naranja",
+  "colorRojo": "Rojo",
+  "colorRosa": "Rosa",
+  "colorCian": "Cian",
+
+  "playback": "Reproducción",
+  "crossfade": "Crossfade",
+  "disabled": "Desactivado",
+  "seconds": "{count} segundos",
+  "secondsShort": "{count} s",
+
+  "application": "Aplicación",
+  "language": "Idioma",
+  "about": "Acerca de",
+  "aboutSonara": "Información sobre Sonara",
+  "sourceCode": "Código fuente",
+  "viewSonaraSource": "Ver el código de Sonara",
+  "close": "Cerrar",
+
+  "aboutSonaraTitle": "Acerca de Sonara",
+  "aboutSonaraDescription": "Un reproductor de música rápido, potente y diseñado para tu día a día.",
+  "developer": "Desarrollador",
+  "helper": "Ayudante",
+  "openSourceLicenses": "Licencias de código abierto",
+  "privacyPolicy": "Política de privacidad",
+  "support": "Soporte",
+  "allRightsReserved": "Todos los derechos reservados.",
+  "version": "Versión {version}",
+  "home": "Inicio",
+  "library": "Biblioteca",
+  "search": "Buscar",
+  "settings": "Configuración",
+
+  "mostPlayed": "Más escuchado",
+  "topMostPlayed": "Top #{count} más escuchado",
+  "noMostPlayedSongs": "Aún no hay canciones más escuchadas",
+
+  "favorites": "Favoritos",
+  "noFavoriteSongs": "Aún no tienes canciones favoritas",
+
+  "play": "Reproducir",
+  "refresh": "Actualizar",
+
+  "removeFromFavorites": "Quitar de favoritos",
+  "addToFavorites": "Añadir a favoritos",
+
+  "removeFromQueue": "Quitar de la cola",
+  "addToQueue": "Agregar a la cola",
+
+  "addToPlaylist": "Agregar a lista de reproducción",
+
+  "mostPlayedBadge": "MÁS ESCUCHADO",
+  "favoriteBadge": "FAVORITO",
+
+  "explore": "Explorar",
+  "music": "Música",
+  "songs": "Canciones",
+  "albums": "Álbumes",
+  "artists": "Artistas",
+  "playlists": "Playlists",
+  "favorites": "Favoritos",
+
+  "playlistCount": "{count, plural, =1 {# playlist} other {# playlists}}",
+
+  "noAlbums": "No hay álbumes en tu biblioteca.",
+  "noArtists": "No hay artistas en tu biblioteca.",
+
+  "libraryEmpty": "Tu biblioteca está vacía",
+  "scanMusicDescription": "Escanea tu carpeta de música para encontrar canciones.",
+  "scanMayTake": "Este proceso puede tardar de 1 a 5 minutos.",
+  "scanning": "Escaneando...",
+  "scanMusic": "Escanear música",
+  "updateList": "Actualizar lista",
+  "foundSongs": "{count, plural, =1 {# canción encontrada} other {# canciones encontradas}}",
+
+  "noFavoriteSongsLibrary": "No tienes canciones favoritas",
+  "noFavoriteSongsDescription": "Marca canciones como favoritas para verlas aquí.",
+  "addAllToQueue": "Agregar todo a la cola",
+  "ready": "Listo",
+  "changeOrder": "Cambiar orden",
+  "removeFromFavorites": "Quitar de favoritos",
+  "removeFavoriteConfirmation": "¿Quieres quitar \"{song}\" de tus favoritos?",
+  "remove": "Quitar",
+
+  "noPlaylists": "No tienes playlists",
+  "createPlaylistDescription": "Crea una playlist para organizar tu música.",
+  "newPlaylist": "Nueva playlist",
+  "importPlaylist": "Importar playlist",
+  "addPlaylist": "Agregar playlist",
+  "renamePlaylist": "Renombrar playlist",
+  "playlistName": "Nombre de la playlist",
+  "exportPlaylist": "Exportar playlist",
+  "deletePlaylist": "Eliminar playlist",
+  "deletePlaylistConfirmation": "¿Quieres eliminar \"{playlist}\"?",
+  "cancel": "Cancelar",
+  "save": "Guardar",
+
+  "playback": "Reproducción",
+  "currentlyPlaying": "Esta canción se está reproduciendo actualmente.",
+  "alreadyInQueue": "Esta canción ya está en la cola.",
+  "queueContainsSongs": "La cola ya contiene canciones. ¿Qué quieres hacer?",
+  "replaceQueue": "Reemplazar cola",
+  "options": "Opciones",
+
+  "explore": "Explorar",
+  "songs": "Canciones",
+  "albums": "Álbumes",
+  "artists": "Artistas",
+  "playlists": "Playlists",
+  "favorites": "Favoritos",
+  "music": "Música",
+
+  "noAlbum": "Sin álbum",
+  "unknownArtist": "Artista desconocido",
+
+  "libraryEmptyTitle": "Tu biblioteca está vacía",
+  "libraryEmptyDescription": "Escanea tu carpeta de música para encontrar canciones.",
+  "scanDurationHint": "Este proceso puede tardar de 1 a 5 minutos.",
+  "scanning": "Escaneando...",
+  "scanMusic": "Escanear música",
+
+  "songsFound": "{count, plural, =1 {1 canción encontrada} other {{count} canciones encontradas}}",
+  "songCount": "{count, plural, =0 {0 canciones} =1 {1 canción} other {{count} canciones}}",
+  "updateList": "Actualizar lista",
+
+  "noAlbums": "No hay álbumes en tu biblioteca.",
+  "noArtists": "No hay artistas en tu biblioteca.",
+
+  "addAllToQueue": "Agregar todo a la cola",
+  "done": "Listo",
+  "changeOrder": "Cambiar orden",
+
+  "removeFromFavorites": "Quitar de favoritos",
+  "removeFromFavoritesQuestion": "¿Quieres quitar \"{title}\" de tus favoritos?",
+
+  "cancel": "Cancelar",
+  "remove": "Eliminar",
+
+  "currentlyPlaying": "Esta canción se está reproduciendo actualmente.",
+  "songAlreadyInQueue": "Esta canción ya está en la cola.",
+  "queueContainsSongs": "La cola ya contiene canciones. ¿Qué quieres hacer?",
+  "addToQueue": "Agregar a la cola",
+  "removeFromQueue": "Quitar de la cola",
+  "replaceQueue": "Reemplazar cola",
+  "options": "Opciones",
+
+  "playlistCount": "{count, plural, =1 {1 playlist} other {{count} playlists}}",
+  "addPlaylist": "Agregar playlist",
+  "newPlaylist": "Nueva playlist",
+  "importPlaylist": "Importar playlist",
+  "exportPlaylist": "Exportar playlist",
+  "deletePlaylist": "Eliminar playlist",
+  "deletePlaylistQuestion": "¿Quieres eliminar \"{name}\"?",
+  "renamePlaylist": "Renombrar playlist",
+  "playlistName": "Nombre de la playlist",
+  "save": "Guardar",
+
+  "noPlaylistsTitle": "No tienes playlists",
+  "noPlaylistsDescription": "Crea una playlist para organizar tu música.",
+  "noFavoritesTitle": "No tienes canciones favoritas",
+  "noFavoritesDescription": "Marca canciones como favoritas para verlas aquí.",
+  "playlistQueueTitle": "La cola ya contiene canciones",
+  
+  "currentlyPlaying": "Esta canción se está reproduciendo actualmente.",
+  "songAlreadyInQueue": "Esta canción ya está en la cola.",
+  "whatToDoWithSong": "¿Qué quieres hacer con esta canción?",
+  "cancel": "Cancelar",
+  "removeFromQueue": "Quitar de la cola",
+  "addToQueue": "Agregar a la cola",
+  "clearQueue": "Borrar cola",
+  "addEntirePlaylist": "Agregar toda la playlist",
+  "addEntirePlaylistDescription": "Esta acción borrará la cola actual y agregará toda la playlist.",
+  "ok": "OK",
+  "removeFromPlaylist": "Quitar de la playlist",
+  "removeSongFromPlaylistQuestion": "¿Quieres quitar \"{title}\" de esta playlist?",
+  "remove": "Quitar",
+  "back": "Regresar",
+  "addAllToQueue": "Agregar todo a la cola",
+  "done": "Listo",
+  "changeOrder": "Cambiar orden",
+  "options": "Opciones",
+  "removeSongFromPlaylistError": "No se pudo quitar la canción de la playlist",
+  "playlistNameHint": "Mi playlist",
+  "create": "Crear",
+  "playlistDoesNotExist": "Esta playlist ya no existe",
+  "playlistIsEmpty": "Esta playlist está vacía",
+  "saveOrder": "Guardar orden",
+  "changeOrder": "Cambiar orden",
+  "closePlayer": "Cerrar reproductor",
+
+  "noSongPlaying": "No hay ninguna canción reproduciéndose",
+  "minimizePlayer": "Minimizar reproductor",
+  "nowPlaying": "Reproduciendo",
+  "previous": "Anterior",
+  "next": "Siguiente",
+  "queue": "Cola",
+  "repeatOff": "No repetir",
+  "repeatSong": "Repetir canción",
+  "repeatQueue": "Repetir lista",
+  "shuffleEnabled": "Aleatorio activado",
+  "shuffleDisabled": "Aleatorio desactivado",
+  "queueTitle": "Cola de espera",
+  "queueEmpty": "La cola está vacía",
+  "previous": "Anterior",
+  "next": "Siguiente",
+  "pause": "Pausar",
+  "play": "Reproducir",
+  "closePlayer": "Cerrar reproductor",
+
+  "searchDescription": "Encuentra música en tu biblioteca y descubre más para escuchar.",
+  "searchFieldHint": "Canciones, artistas o álbumes",
+  "clearSearch": "Limpiar búsqueda",
+  "searchingYouTube": "Buscando en YouTube...",
+  "searchAlsoYouTube": "Buscar también en YouTube",
+  "localResult": "{count} resultado local",
+  "localResults": "{count} resultados locales",
+  "youtubeResult": "{count} resultado de YouTube",
+  "youtubeResults": "{count} resultados de YouTube",
+  "showMore": "Mostrar más",
+  "noMoreResults": "No hay más resultados",
+  "noYouTubeResults": "No encontramos resultados en YouTube.",
+  "tryAnotherSearch": "Intenta con otra búsqueda.",
+  "noLibraryResults": "No encontramos \"{query}\"",
+  "noLibraryMatches": "No hay coincidencias en tu biblioteca local.",
+  "whatToListen": "¿Qué quieres escuchar?",
+  "searchDescriptionLong": "Busca una canción, artista o álbum. Sonara revisará tu música y podrás ampliar la búsqueda con YouTube.",
+  "playbackTitle": "Reproducción",
+  "currentlyPlayingMessage": "Esta canción se está reproduciendo actualmente.",
+  "alreadyInQueueMessage": "Esta canción ya está en la cola.",
+  "queueContainsSongsMessage": "La cola ya contiene canciones. ¿Qué quieres hacer?",
+  "downloadPreparing": "Preparando descarga...",
+  "downloadCompleted": "Descarga completada",
+  "downloadFailed": "No se pudo descargar",
+  "downloadingAudio": "Descargando audio",
+  "downloadSuccessDescription": "El audio se descargó correctamente y ya está disponible en tu biblioteca.",
+  "finishingConverting": "Finalizando y convirtiendo el audio...",
+  "updatingLibrary": "Actualizando biblioteca...",
+  "downloadMayTake": "La descarga puede tardar un par de minutos.",
+  "close": "Cerrar",
+  "downloadAudio": "Descargar audio",
+  "fileName": "Nombre del archivo",
+  "format": "Formato",
+  "mp3CompatibleDescription": "Formato compatible con la mayoría de reproductores",
+  "afterDownload": "Después de descargar",
+  "addToPlaylist": "Agregar a playlist",
+  "playlistWillBeSelected": "Se seleccionará una playlist después",
+  "optional": "Opcional",
+  "download": "Descargar",
+  "enterFileName": "Escribe un nombre para el archivo.",
+
+
+
+  "localResults": "{count, plural, =1 {1 resultado local} other {{count} resultados locales}}",
+  "@localResults": {
+    "description": "Cantidad de resultados encontrados en la biblioteca local",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+
+  "youtubeResults": "{count, plural, =1 {1 resultado de YouTube} other {{count} resultados de YouTube}}",
+  "@youtubeResults": {
+    "description": "Cantidad de resultados encontrados en YouTube",
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+
+  "noLibraryResults": "No encontramos \"{query}\"",
+  "@noLibraryResults": {
+    "description": "Mensaje cuando no se encuentran canciones en la biblioteca para una búsqueda",
+    "placeholders": {
+      "query": {
+        "type": "String"
+      }
+    }
+  }
+
+
+
+
+}
