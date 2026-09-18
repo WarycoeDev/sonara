@@ -52,6 +52,7 @@ dependencies:
     path: packages/just_audio_background
   #audio_service: ^0.18.19
   extractor: ^1.0.0
+  url_launcher: ^6.3.2
 
   flutter_localizations:
     sdk: flutter

@@ -7,6 +7,8 @@ import '../../../app/theme_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../theme/app_theme.dart';
 
+import 'package:url_launcher/url_launcher.dart';
+
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
 
@@ -86,6 +88,16 @@ class _SettingsPageState extends State<SettingsPage> {
 
     if (mounted) {
       setState(() {});
+    }
+  }
+
+  Future<void> _openSourceCode() async {
+    final uri = Uri.parse('https://github.com/WarycoeDev/sonara');
+
+    try {
+      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (e) {
+      debugPrint('No se pudo abrir Source Code: $e');
     }
   }
 
@@ -518,7 +530,7 @@ class _SettingsPageState extends State<SettingsPage> {
             title: Text(l10n.sourceCode),
             subtitle: Text(l10n.viewSonaraSource),
             trailing: const Icon(Icons.open_in_new),
-            onTap: () {},
+            onTap: _openSourceCode,
           ),
 
           const SizedBox(height: 32),
