@@ -1,0 +1,11 @@
+display_name: Sonara
+package_name: sonara
+maintainer:
+  name: WarycoeDev
+  email: ""
+priority: optional
+section: sound
+installed_size: 100000
+essential: false
+icon: linux/packaging/deb/sonara.png
+description: A modern local music player built with Flutter.

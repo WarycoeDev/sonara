@@ -23,6 +23,12 @@ class AudioPlayerService {
   factory AudioPlayerService() => instance;
 
   // ===========================================================================
+  // PLATFORM
+  // ===========================================================================
+
+  bool get _isLinux => Platform.isLinux;
+
+  // ===========================================================================
   // PLAYER
   // ===========================================================================
 
@@ -30,7 +36,17 @@ class AudioPlayerService {
 
   final List<Song> _songs = [];
 
+  // Android:
+  // Se utiliza ConcatenatingAudioSource normalmente.
   ConcatenatingAudioSource? _playlist;
+
+  // Linux:
+  // just_audio_media_kit no soporta ConcatenatingAudioSource.
+  // La cola se mantiene en _songs y solamente se carga la canción actual.
+  int? _linuxCurrentIndex;
+  bool _linuxLoading = false;
+
+  int _linuxLoadGeneration = 0;
 
   // ===========================================================================
   // STREAMS
@@ -90,8 +106,6 @@ class AudioPlayerService {
 
   int _crossfadeGeneration = 0;
 
-  // Evita que dos comprobaciones del Timer ejecuten
-  // la transición al mismo tiempo.
   bool _crossfadeCheckInProgress = false;
 
   // ===========================================================================
@@ -148,7 +162,7 @@ class AudioPlayerService {
 
   Duration? get duration => _player.duration;
 
-  int? get currentIndex => _player.currentIndex;
+  int? get currentIndex => _isLinux ? _linuxCurrentIndex : _player.currentIndex;
 
   bool get hasQueue => _songs.isNotEmpty;
 
@@ -172,6 +186,18 @@ class AudioPlayerService {
 
       if (!_playerStateController.isClosed) {
         _playerStateController.add(state);
+      }
+
+      // -----------------------------------------------------------------------
+      // Linux no tiene ConcatenatingAudioSource.
+      //
+      // Por lo tanto, cuando termina una canción debemos avanzar manualmente.
+      // -----------------------------------------------------------------------
+
+      if (_isLinux &&
+          state.processingState == ProcessingState.completed &&
+          !_crossfadeInProgress) {
+        unawaited(_handleLinuxTrackCompleted());
       }
     });
 
@@ -200,6 +226,12 @@ class AudioPlayerService {
         return;
       }
 
+      // En Linux just_audio solamente conoce el índice de su única
+      // AudioSource cargada. El índice real lo mantenemos nosotros.
+      if (_isLinux) {
+        return;
+      }
+
       if (!_currentIndexController.isClosed) {
         _currentIndexController.add(index);
       }
@@ -207,13 +239,61 @@ class AudioPlayerService {
       if (index != null && index >= 0 && index < _songs.length) {
         _updateTrackGain(_songs[index]);
 
-        // Durante el crossfade no debemos sobrescribir el volumen
-        // que está siendo animado manualmente.
         if (!_crossfadeInProgress) {
           unawaited(_applyEffectiveVolume());
         }
       }
     });
+  }
+
+  Future<void> _handleLinuxTrackCompleted() async {
+    if (_isDisposed || !_isLinux || _songs.isEmpty || _linuxLoading) {
+      return;
+    }
+
+    final index = _linuxCurrentIndex ?? 0;
+
+    // ---------------------------------------------------------------------------
+    // REPETIR UNA
+    // ---------------------------------------------------------------------------
+
+    if (_repeatMode == 1) {
+      await _loadLinuxSong(index, position: Duration.zero, autoplay: true);
+
+      return;
+    }
+
+    // ---------------------------------------------------------------------------
+    // SHUFFLE
+    // ---------------------------------------------------------------------------
+
+    if (_shuffleEnabled && _songs.length > 1) {
+      final nextIndex = _getRandomIndexExcluding(index);
+
+      await _loadLinuxSong(nextIndex, position: Duration.zero, autoplay: true);
+
+      return;
+    }
+
+    // ---------------------------------------------------------------------------
+    // SIGUIENTE
+    // ---------------------------------------------------------------------------
+
+    final nextIndex = index + 1;
+
+    if (nextIndex < _songs.length) {
+      await _loadLinuxSong(nextIndex, position: Duration.zero, autoplay: true);
+
+      return;
+    }
+
+    // ---------------------------------------------------------------------------
+    // REPETIR TODA LA COLA
+    // ---------------------------------------------------------------------------
+
+    if (_repeatMode == 2) {
+      await _loadLinuxSong(0, position: Duration.zero, autoplay: true);
+    }
   }
 
   // ===========================================================================
@@ -230,6 +310,114 @@ class AudioPlayerService {
     final mediaItem = await _createMediaItem(song);
 
     return AudioSource.uri(Uri.file(song.filePath), tag: mediaItem);
+  }
+
+  // ===========================================================================
+  // CARGAR CANCIÓN INDIVIDUAL EN LINUX
+  // ===========================================================================
+
+  Future<Duration?> _loadLinuxSong(
+    int index, {
+    Duration position = Duration.zero,
+    bool autoplay = false,
+  }) async {
+    if (!_isLinux || index < 0 || index >= _songs.length || _isDisposed) {
+      return null;
+    }
+
+    final generation = ++_linuxLoadGeneration;
+    final song = _songs[index];
+
+    // Si otra carga está ejecutándose, invalidamos la anterior.
+    // La nueva operación será la que tenga prioridad.
+    if (_linuxLoading) {
+      debugPrint(
+        '[SONARA LINUX] '
+        'Nueva carga solicitada mientras otra estaba en progreso: '
+        '${song.title}',
+      );
+    }
+
+    _linuxLoading = true;
+
+    try {
+      debugPrint(
+        '[SONARA LINUX] '
+        'Cargando índice $index: ${song.title}',
+      );
+
+      final source = await _createAudioSource(song);
+
+      // La operación pudo haber sido reemplazada mientras
+      // se construía el AudioSource.
+      if (generation != _linuxLoadGeneration || _isDisposed) {
+        return null;
+      }
+
+      _linuxCurrentIndex = index;
+
+      await _player.setAudioSource(
+        source,
+        initialPosition: position,
+        preload: true,
+      );
+
+      // setAudioSource puede haber provocado una nueva operación
+      // mientras terminaba.
+      if (generation != _linuxLoadGeneration || _isDisposed) {
+        return null;
+      }
+
+      _updateTrackGain(song);
+
+      await _applyEffectiveVolume();
+
+      if (generation != _linuxLoadGeneration || _isDisposed) {
+        return null;
+      }
+
+      _emitCurrentState();
+
+      final result = await _waitForDuration();
+
+      if (generation != _linuxLoadGeneration || _isDisposed) {
+        return result;
+      }
+
+      if (autoplay) {
+        await _player.play();
+
+        if (_crossfadeService.enabled) {
+          _startCrossfadeMonitor();
+        }
+      }
+
+      return result;
+    } on PlayerInterruptedException catch (error) {
+      // Linux puede generar esta excepción cuando una carga es
+      // reemplazada por otra operación del reproductor.
+      //
+      // No debemos dejar que esta excepción pause/rompa la aplicación.
+      debugPrint(
+        '[SONARA LINUX] '
+        'Carga interrumpida de ${song.title}: $error',
+      );
+
+      return null;
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[SONARA LINUX ERROR] '
+        'No se pudo cargar ${song.title}: $error',
+      );
+
+      debugPrintStack(stackTrace: stackTrace);
+
+      return null;
+    } finally {
+      if (generation == _linuxLoadGeneration) {
+        _linuxLoading = false;
+      }
+    }
   }
 
   // ===========================================================================
@@ -304,7 +492,7 @@ class AudioPlayerService {
 
         Song? currentSong;
 
-        final index = _player.currentIndex;
+        final index = currentIndex;
 
         if (index != null && index >= 0 && index < _songs.length) {
           currentSong = _songs[index];
@@ -347,8 +535,6 @@ class AudioPlayerService {
     if (!_crossfadeService.enabled) {
       _stopCrossfadeMonitor();
 
-      // Si se desactivó mientras estaba haciendo una transición,
-      // cancelamos la transición y recuperamos el volumen normal.
       if (_crossfadeInProgress) {
         _crossfadeGeneration++;
         _crossfadeInProgress = false;
@@ -395,7 +581,7 @@ class AudioPlayerService {
       return;
     }
 
-    final currentIndex = _player.currentIndex;
+    final currentIndex = this.currentIndex;
 
     if (currentIndex == null ||
         currentIndex < 0 ||
@@ -433,7 +619,7 @@ class AudioPlayerService {
   // ===========================================================================
 
   int? _getCrossfadeNextIndex() {
-    final index = _player.currentIndex;
+    final index = currentIndex;
 
     if (_songs.isEmpty ||
         index == null ||
@@ -447,13 +633,7 @@ class AudioPlayerService {
     }
 
     if (_shuffleEnabled && _songs.length > 1) {
-      var next = _random.nextInt(_songs.length - 1);
-
-      if (next >= index) {
-        next++;
-      }
-
-      return next;
+      return _getRandomIndexExcluding(index);
     }
 
     final nextIndex = index + 1;
@@ -481,12 +661,10 @@ class AudioPlayerService {
     final nextIndex = _getCrossfadeNextIndex();
 
     if (nextIndex == null) {
-      // No hay siguiente canción.
-      // Dejamos que just_audio termine normalmente.
       return;
     }
 
-    final oldIndex = _player.currentIndex;
+    final oldIndex = currentIndex;
 
     if (oldIndex == null || oldIndex < 0 || oldIndex >= _songs.length) {
       return;
@@ -545,20 +723,30 @@ class AudioPlayerService {
         return;
       }
 
-      // -----------------------------------------------------------------------
-      // CAMBIAR DE CANCIÓN SIN HACER STOP()
-      // -----------------------------------------------------------------------
-
       await _player.setVolume(0.0);
 
-      await _player.seek(Duration.zero, index: nextIndex);
+      // -----------------------------------------------------------------------
+      // CAMBIAR DE CANCIÓN
+      // -----------------------------------------------------------------------
+
+      if (_isLinux) {
+        // Linux no tiene playlist interna.
+        // Cargamos directamente la siguiente AudioSource.
+        await _loadLinuxSong(
+          nextIndex,
+          position: Duration.zero,
+          autoplay: false,
+        );
+      } else {
+        await _player.seek(Duration.zero, index: nextIndex);
+      }
 
       if (generation != _crossfadeGeneration || _isDisposed) {
         return;
       }
 
       // -----------------------------------------------------------------------
-      // REPRODUCIR LA NUEVA CANCIÓN
+      // REPRODUCIR NUEVA CANCIÓN
       // -----------------------------------------------------------------------
 
       await _player.play();
@@ -596,11 +784,12 @@ class AudioPlayerService {
 
       debugPrintStack(stackTrace: stackTrace);
 
-      // Recuperación.
       try {
-        await _player.setVolume(
-          _getEffectiveVolumeForSong(_songs[_player.currentIndex ?? oldIndex]),
-        );
+        final index = currentIndex;
+
+        if (index != null && index >= 0 && index < _songs.length) {
+          await _player.setVolume(_getEffectiveVolumeForSong(_songs[index]));
+        }
 
         if (!_player.playing) {
           await _player.play();
@@ -636,6 +825,22 @@ class AudioPlayerService {
 
     final safeIndex = initialIndex.clamp(0, _songs.length - 1).toInt();
 
+    // -------------------------------------------------------------------------
+    // LINUX
+    // -------------------------------------------------------------------------
+
+    if (_isLinux) {
+      return _loadLinuxSong(
+        safeIndex,
+        position: Duration.zero,
+        autoplay: false,
+      );
+    }
+
+    // -------------------------------------------------------------------------
+    // ANDROID / OTRAS PLATAFORMAS
+    // -------------------------------------------------------------------------
+
     final audioSources = <AudioSource>[];
 
     for (final song in _songs) {
@@ -657,7 +862,7 @@ class AudioPlayerService {
 
     _emitCurrentState();
 
-    return await _waitForDuration();
+    return _waitForDuration();
   }
 
   // ===========================================================================
@@ -684,15 +889,7 @@ class AudioPlayerService {
       return null;
     }
 
-    // IMPORTANTE:
-    // No hacemos stop() aquí.
-    //
-    // Hacer stop() antes de cambiar de índice era la causa
-    // de que "Siguiente" pudiera terminar dejando el reproductor
-    // en estado pausado/detenido.
     _cancelTransition();
-
-    final wasPlaying = _player.playing;
 
     final targetSong = _songs[index];
 
@@ -701,8 +898,20 @@ class AudioPlayerService {
       'Cambiando a índice $index: ${targetSong.title}',
     );
 
-    // Ponemos temporalmente el volumen correcto de la nueva canción.
-    // Si estaba reproduciendo, hacemos el cambio manteniendo play.
+    // -------------------------------------------------------------------------
+    // LINUX
+    // -------------------------------------------------------------------------
+
+    if (_isLinux) {
+      return _loadLinuxSong(index, position: Duration.zero, autoplay: true);
+    }
+
+    // -------------------------------------------------------------------------
+    // ANDROID / OTRAS PLATAFORMAS
+    // -------------------------------------------------------------------------
+
+    final wasPlaying = _player.playing;
+
     await _player.setVolume(0.0);
 
     await _player.seek(Duration.zero, index: index);
@@ -717,10 +926,7 @@ class AudioPlayerService {
 
     final result = await _waitForDuration();
 
-    // playAtIndex se utiliza como acción explícita de reproducción.
-    // Por tanto, siempre debe terminar reproduciendo.
-    //
-    // Esto es especialmente importante para el botón Siguiente.
+    // playAtIndex representa una acción explícita de reproducción.
     if (wasPlaying || !wasPlaying) {
       await _player.play();
     }
@@ -782,6 +988,27 @@ class AudioPlayerService {
       return;
     }
 
+    // -------------------------------------------------------------------------
+    // LINUX
+    // -------------------------------------------------------------------------
+
+    if (_isLinux) {
+      if (_songs.isEmpty) {
+        await setQueue([song], initialIndex: 0);
+        return;
+      }
+
+      _songs.add(song);
+
+      _emitCurrentState();
+
+      return;
+    }
+
+    // -------------------------------------------------------------------------
+    // ANDROID
+    // -------------------------------------------------------------------------
+
     if (_playlist == null) {
       await setQueue([song], initialIndex: 0);
 
@@ -809,6 +1036,28 @@ class AudioPlayerService {
     if (newSongs.isEmpty) {
       return;
     }
+
+    // -------------------------------------------------------------------------
+    // LINUX
+    // -------------------------------------------------------------------------
+
+    if (_isLinux) {
+      if (_songs.isEmpty) {
+        await setQueue(newSongs, initialIndex: 0);
+
+        return;
+      }
+
+      _songs.addAll(newSongs);
+
+      _emitCurrentState();
+
+      return;
+    }
+
+    // -------------------------------------------------------------------------
+    // ANDROID
+    // -------------------------------------------------------------------------
 
     if (_playlist == null) {
       await setQueue(newSongs, initialIndex: 0);
@@ -838,14 +1087,34 @@ class AudioPlayerService {
       return;
     }
 
-    if (_playlist == null) {
+    final current = currentIndex;
+
+    // No eliminamos directamente la canción actual.
+    if (index == current) {
       return;
     }
 
-    final currentIndex = _player.currentIndex;
+    // -------------------------------------------------------------------------
+    // LINUX
+    // -------------------------------------------------------------------------
 
-    // No eliminamos directamente la canción actual.
-    if (index == currentIndex) {
+    if (_isLinux) {
+      _songs.removeAt(index);
+
+      if (_linuxCurrentIndex != null && index < _linuxCurrentIndex!) {
+        _linuxCurrentIndex = _linuxCurrentIndex! - 1;
+      }
+
+      _emitCurrentState();
+
+      return;
+    }
+
+    // -------------------------------------------------------------------------
+    // ANDROID
+    // -------------------------------------------------------------------------
+
+    if (_playlist == null) {
       return;
     }
 
@@ -865,8 +1134,41 @@ class AudioPlayerService {
         oldIndex >= _songs.length ||
         newIndex < 0 ||
         newIndex >= _songs.length ||
-        oldIndex == newIndex ||
-        _playlist == null) {
+        oldIndex == newIndex) {
+      return;
+    }
+
+    final current = currentIndex;
+
+    // -------------------------------------------------------------------------
+    // LINUX
+    // -------------------------------------------------------------------------
+
+    if (_isLinux) {
+      final song = _songs.removeAt(oldIndex);
+
+      _songs.insert(newIndex, song);
+
+      if (current != null) {
+        if (current == oldIndex) {
+          _linuxCurrentIndex = newIndex;
+        } else if (oldIndex < current && newIndex >= current) {
+          _linuxCurrentIndex = current - 1;
+        } else if (oldIndex > current && newIndex <= current) {
+          _linuxCurrentIndex = current + 1;
+        }
+      }
+
+      _emitCurrentState();
+
+      return;
+    }
+
+    // -------------------------------------------------------------------------
+    // ANDROID
+    // -------------------------------------------------------------------------
+
+    if (_playlist == null) {
       return;
     }
 
@@ -890,6 +1192,10 @@ class AudioPlayerService {
 
     _crossfadeCheckInProgress = false;
 
+    if (_isLinux) {
+      _linuxLoadGeneration++;
+    }
+
     _stopCrossfadeMonitor();
   }
 
@@ -902,24 +1208,22 @@ class AudioPlayerService {
       return false;
     }
 
-    final currentIndex = _player.currentIndex ?? 0;
+    final current = currentIndex ?? 0;
 
-    // Si el crossfade estaba ejecutándose, lo cancelamos.
     _cancelTransition();
 
     int? nextIndex;
 
     if (_repeatMode == 1) {
-      // Repetir canción actual.
-      nextIndex = currentIndex;
+      nextIndex = current;
     } else if (_shuffleEnabled) {
       if (_songs.length <= 1) {
         return false;
       }
 
-      nextIndex = _getRandomIndexExcluding(currentIndex);
+      nextIndex = _getRandomIndexExcluding(current);
     } else {
-      final candidate = currentIndex + 1;
+      final candidate = current + 1;
 
       if (candidate < _songs.length) {
         nextIndex = candidate;
@@ -934,7 +1238,7 @@ class AudioPlayerService {
 
     debugPrint(
       '[SONARA PLAYER] '
-      'SIGUIENTE: $currentIndex -> $nextIndex',
+      'SIGUIENTE: $current -> $nextIndex',
     );
 
     await playAtIndex(nextIndex);
@@ -951,7 +1255,7 @@ class AudioPlayerService {
       return false;
     }
 
-    final currentIndex = _player.currentIndex ?? 0;
+    final current = currentIndex ?? 0;
 
     _cancelTransition();
 
@@ -968,9 +1272,9 @@ class AudioPlayerService {
         return false;
       }
 
-      previousIndex = _getRandomIndexExcluding(currentIndex);
+      previousIndex = _getRandomIndexExcluding(current);
     } else {
-      final candidate = currentIndex - 1;
+      final candidate = current - 1;
 
       if (candidate >= 0) {
         previousIndex = candidate;
@@ -985,7 +1289,7 @@ class AudioPlayerService {
 
     debugPrint(
       '[SONARA PLAYER] '
-      'ANTERIOR: $currentIndex -> $previousIndex',
+      'ANTERIOR: $current -> $previousIndex',
     );
 
     await playAtIndex(previousIndex);
@@ -1016,12 +1320,12 @@ class AudioPlayerService {
       return;
     }
 
-    if (_player.currentIndex == null) {
+    if (currentIndex == null) {
       await playAtIndex(0);
       return;
     }
 
-    final index = _player.currentIndex!;
+    final index = currentIndex!;
 
     if (index >= 0 && index < _songs.length) {
       _updateTrackGain(_songs[index]);
@@ -1070,6 +1374,22 @@ class AudioPlayerService {
 
   Future<void> seek(Duration position, {int? index}) async {
     _cancelTransition();
+
+    // Linux no puede hacer seek(index: ...) porque no existe
+    // una ConcatenatingAudioSource.
+    if (_isLinux && index != null) {
+      if (index < 0 || index >= _songs.length) {
+        return;
+      }
+
+      await _loadLinuxSong(
+        index,
+        position: position,
+        autoplay: _player.playing,
+      );
+
+      return;
+    }
 
     await _player.seek(position, index: index);
 
@@ -1176,7 +1496,7 @@ class AudioPlayerService {
   // ===========================================================================
 
   void _emitCurrentState() {
-    final index = _player.currentIndex;
+    final index = currentIndex;
 
     if (!_currentIndexController.isClosed) {
       _currentIndexController.add(index);
@@ -1208,14 +1528,26 @@ class AudioPlayerService {
 
     _playlist = null;
 
+    _linuxCurrentIndex = null;
+
     _currentTrackGainLinear = 1.0;
 
-    try {
-      await _player.setAudioSource(
-        ConcatenatingAudioSource(children: []),
-        preload: false,
-      );
-    } catch (_) {}
+    // -------------------------------------------------------------------------
+    // IMPORTANTE:
+    //
+    // En Linux NO intentamos cargar una ConcatenatingAudioSource vacía,
+    // porque just_audio_media_kit tampoco soporta ese tipo de fuente.
+    // stop() es suficiente para dejar el reproductor sin reproducción.
+    // -------------------------------------------------------------------------
+
+    if (!_isLinux) {
+      try {
+        await _player.setAudioSource(
+          ConcatenatingAudioSource(children: []),
+          preload: false,
+        );
+      } catch (_) {}
+    }
 
     await _applyEffectiveVolume();
 

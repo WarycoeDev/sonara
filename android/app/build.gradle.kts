@@ -20,8 +20,12 @@ android {
     }
 
     packaging {
-        jniLibs {
-            useLegacyPackaging = true
+    jniLibs {
+        keepDebugSymbols += setOf(
+            "**/libaria2c.zip.so",
+            "**/libffmpeg.zip.so",
+            "**/libpython.zip.so"
+            )
         }
     }
 
