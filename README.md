@@ -9,16 +9,16 @@ It supports music libraries, playlists, favorites, metadata, album artwork, YouT
 ### Android
 
 <p align="center">
-  <img src="screenshots/home-android.png" width="30%">
-  <img src="screenshots/player-android.png" width="30%">
-  <img src="screenshots/search-android.png" width="30%">
+  <img src="pictures/home-android.png" width="30%">
+  <img src="pictures/player-android.png" width="30%">
+  <img src="pictures/search-android.png" width="30%">
 </p>
 
 ### Linux / Desktop
 
 <p align="center">
-  <img src="screenshots/home-pc.png" width="45%">
-  <img src="screenshots/player-pc.png" width="45%">
+  <img src="pictures/home-pc.png" width="45%">
+  <img src="pictures/player-pc.png" width="45%">
 </p>
 
 ## ✨ Features
