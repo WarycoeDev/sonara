@@ -1,7 +1,19 @@
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
+
 class MusicDirectoryService {
   Future<List<String>> getMusicDirectories() async {
+    if (Platform.isAndroid) {
+      final externalDirectory = await getExternalStorageDirectory();
+
+      if (externalDirectory == null) {
+        return const <String>[];
+      }
+
+      return <String>['${externalDirectory.path}/Music'];
+    }
+
     if (Platform.isLinux) {
       final home = Platform.environment['HOME'];
 
@@ -9,7 +21,11 @@ class MusicDirectoryService {
         return const <String>[];
       }
 
-      return <String>['$home/Music' /*'$home/Downloads', '$home/Desktop'*/];
+      return <String>[
+        '$home/Music',
+        // '$home/Downloads',
+        // '$home/Desktop',
+      ];
     }
 
     if (Platform.isWindows) {

@@ -1,6 +1,7 @@
 package com.example.sonara
 
 import android.Manifest
+import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.media.AudioFormat
@@ -11,6 +12,7 @@ import android.media.MediaMetadataRetriever
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
+import android.provider.MediaStore
 import android.provider.Settings
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -138,6 +140,55 @@ class MainActivity : AudioServiceActivity() {
                 }
 
                 // =============================================================
+                // PUBLICAR AUDIO EN MUSIC
+                // =============================================================
+
+                "publishAudioToMusic" -> {
+
+                    val sourcePath =
+                        call.argument<String>(
+                            "sourcePath"
+                        )
+
+                    val fileName =
+                        call.argument<String>(
+                            "fileName"
+                        )
+
+                    if (
+                        sourcePath.isNullOrEmpty() ||
+                        fileName.isNullOrEmpty()
+                    ) {
+
+                        result.error(
+                            "INVALID_AUDIO_DATA",
+                            "sourcePath y fileName son obligatorios.",
+                            null
+                        )
+
+                        return@setMethodCallHandler
+                    }
+
+                    try {
+
+                        result.success(
+                            publishAudioToMusic(
+                                sourcePath = sourcePath,
+                                fileName = fileName
+                            )
+                        )
+
+                    } catch (exception: Exception) {
+
+                        result.error(
+                            "PUBLISH_AUDIO_ERROR",
+                            exception.message,
+                            null
+                        )
+                    }
+                }
+
+                // =============================================================
                 // REPLAYGAIN
                 // =============================================================
 
@@ -192,6 +243,208 @@ class MainActivity : AudioServiceActivity() {
                 }
             }
         }
+    }
+
+    // =======================================================================
+    // PUBLICAR AUDIO EN MUSIC
+    // =======================================================================
+
+    private fun publishAudioToMusic(
+        sourcePath: String,
+        fileName: String
+    ): String {
+
+        val sourceFile =
+            File(sourcePath)
+
+        if (!sourceFile.exists()) {
+
+            throw IllegalArgumentException(
+                "El archivo temporal no existe: $sourcePath"
+            )
+        }
+
+        if (!sourceFile.isFile) {
+
+            throw IllegalArgumentException(
+                "La ruta temporal no corresponde a un archivo."
+            )
+        }
+
+        val resolver =
+            contentResolver
+
+        // ===================================================================
+        // ANDROID 10+
+        // ===================================================================
+
+        if (
+            Build.VERSION.SDK_INT >=
+            Build.VERSION_CODES.Q
+        ) {
+
+            val audioCollection =
+                MediaStore.Audio.Media.getContentUri(
+                    MediaStore.VOLUME_EXTERNAL_PRIMARY
+                )
+
+            val values =
+                ContentValues().apply {
+
+                    put(
+                        MediaStore.Audio.Media.DISPLAY_NAME,
+                        fileName
+                    )
+
+                    put(
+                        MediaStore.Audio.Media.MIME_TYPE,
+                        "audio/mpeg"
+                    )
+
+                    put(
+                        MediaStore.Audio.Media.RELATIVE_PATH,
+                        Environment.DIRECTORY_MUSIC
+                    )
+
+                    put(
+                        MediaStore.Audio.Media.IS_MUSIC,
+                        1
+                    )
+
+                    put(
+                        MediaStore.Audio.Media.IS_PENDING,
+                        1
+                    )
+                }
+
+            val uri =
+                resolver.insert(
+                    audioCollection,
+                    values
+                )
+                    ?: throw IllegalStateException(
+                        "MediaStore no pudo crear el archivo."
+                    )
+
+            try {
+
+                resolver.openOutputStream(
+                    uri,
+                    "w"
+                ).use { outputStream ->
+
+                    if (outputStream == null) {
+
+                        throw IllegalStateException(
+                            "No se pudo abrir el archivo de Music para escritura."
+                        )
+                    }
+
+                    sourceFile.inputStream().use { inputStream ->
+
+                        val buffer =
+                            ByteArray(
+                                64 * 1024
+                            )
+
+                        while (true) {
+
+                            val bytesRead =
+                                inputStream.read(
+                                    buffer
+                                )
+
+                            if (bytesRead == -1) {
+                                break
+                            }
+
+                            outputStream.write(
+                                buffer,
+                                0,
+                                bytesRead
+                            )
+                        }
+
+                        outputStream.flush()
+                    }
+                }
+
+                val publishValues =
+                    ContentValues().apply {
+
+                        put(
+                            MediaStore.Audio.Media.IS_PENDING,
+                            0
+                        )
+                    }
+
+                resolver.update(
+                    uri,
+                    publishValues,
+                    null,
+                    null
+                )
+
+                val publicPath =
+                    Environment
+                        .getExternalStoragePublicDirectory(
+                            Environment.DIRECTORY_MUSIC
+                        )
+                        .absolutePath +
+                        File.separator +
+                        fileName
+
+                return publicPath
+
+            } catch (exception: Exception) {
+
+                try {
+
+                    resolver.delete(
+                        uri,
+                        null,
+                        null
+                    )
+
+                } catch (_: Exception) {
+                }
+
+                throw exception
+            }
+        }
+
+        // ===================================================================
+        // ANDROID 9 Y ANTERIORES
+        // ===================================================================
+
+        val musicDirectory =
+            Environment.getExternalStoragePublicDirectory(
+                Environment.DIRECTORY_MUSIC
+            )
+
+        if (!musicDirectory.exists()) {
+
+            musicDirectory.mkdirs()
+        }
+
+        val destinationFile =
+            File(
+                musicDirectory,
+                fileName
+            )
+
+        sourceFile.inputStream().use { inputStream ->
+
+            destinationFile.outputStream().use { outputStream ->
+
+                inputStream.copyTo(
+                    outputStream,
+                    bufferSize = 64 * 1024
+                )
+            }
+        }
+
+        return destinationFile.absolutePath
     }
 
     // =======================================================================
@@ -519,10 +772,6 @@ class MainActivity : AudioServiceActivity() {
 
 private object ReplayGainCalculator {
 
-    // =======================================================================
-    // CONFIGURACIÓN
-    // =======================================================================
-
     private const val TARGET_LOUDNESS_LUFS =
         -18.0
 
@@ -538,30 +787,11 @@ private object ReplayGainCalculator {
     private const val MAX_VALID_GAIN_DB =
         30.0
 
-    // Bloques EBU R128.
     private const val BLOCK_SECONDS =
         0.4
 
-    // Solapamiento de 100 ms.
     private const val STEP_SECONDS =
         0.1
-
-    // =======================================================================
-    // OPTIMIZACIÓN DE MUESTREO
-    // =======================================================================
-    //
-    // Antes:
-    //
-    // 5 segmentos × 12 segundos
-    // = hasta 60 segundos analizados.
-    //
-    // Ahora:
-    //
-    // 3 segmentos × 5 segundos
-    // = hasta 15 segundos analizados.
-    //
-    // Los segmentos se distribuyen por diferentes zonas de la canción.
-    // =======================================================================
 
     private const val SEGMENT_COUNT =
         3
@@ -577,10 +807,6 @@ private object ReplayGainCalculator {
 
     private const val MAX_TRAILING_TRY_AGAIN =
         50
-
-    // =======================================================================
-    // CALCULAR GANANCIA
-    // =======================================================================
 
     fun calculateTrackGain(
         file: File
@@ -610,10 +836,6 @@ private object ReplayGainCalculator {
             null
         }
     }
-
-    // =======================================================================
-    // CALCULAR USANDO UN SOLO EXTRACTOR Y UN SOLO DECODER
-    // =======================================================================
 
     private fun calculateTrackGainInternal(
         file: File,
@@ -703,21 +925,6 @@ private object ReplayGainCalculator {
             return null
         }
 
-        // ===================================================================
-        // IMPORTANTE
-        // ===================================================================
-        //
-        // Se crea UNA SOLA instancia del decoder.
-        //
-        // Entre segmentos usamos:
-        //
-        // extractor.seekTo(...)
-        // codec.flush()
-        //
-        // De esta manera evitamos crear y destruir un MediaCodec completo
-        // por cada segmento.
-        // ===================================================================
-
         val codec =
             try {
 
@@ -785,31 +992,21 @@ private object ReplayGainCalculator {
         } finally {
 
             try {
-
                 codec.stop()
-
             } catch (_: Exception) {
             }
 
             try {
-
                 codec.release()
-
             } catch (_: Exception) {
             }
 
             try {
-
                 extractor.release()
-
             } catch (_: Exception) {
             }
         }
     }
-
-    // =======================================================================
-    // DURACIÓN
-    // =======================================================================
 
     private fun getDurationUs(
         file: File
@@ -841,25 +1038,15 @@ private object ReplayGainCalculator {
         } finally {
 
             try {
-
                 retriever.release()
-
             } catch (_: Exception) {
             }
         }
     }
 
-    // =======================================================================
-    // POSICIONES DE LOS SEGMENTOS
-    // =======================================================================
-
     private fun getSegmentStartsUs(
         durationUs: Long
     ): List<Long> {
-
-        // ===============================================================
-        // Si no conocemos la duración, analizamos desde el inicio.
-        // ===============================================================
 
         if (
             durationUs <= 0L
@@ -874,16 +1061,6 @@ private object ReplayGainCalculator {
             durationUs /
                     1_000_000.0
 
-        // ===============================================================
-        // Canciones cortas.
-        // ===============================================================
-        //
-        // No tiene sentido buscar posiciones distribuidas.
-        //
-        // Analizamos desde el inicio.
-        // El análisis queda limitado a MAX_ANALYSIS_SECONDS.
-        // ===============================================================
-
         if (
             durationSeconds <=
             MAX_ANALYSIS_SECONDS
@@ -896,16 +1073,6 @@ private object ReplayGainCalculator {
 
         val starts =
             mutableListOf<Long>()
-
-        // ===============================================================
-        // 3 posiciones distribuidas aproximadamente:
-        //
-        // 20 %
-        // 50 %
-        // 80 %
-        //
-        // Cada segmento dura 5 segundos.
-        // ===============================================================
 
         val fractions =
             doubleArrayOf(
@@ -948,10 +1115,6 @@ private object ReplayGainCalculator {
         return starts
     }
 
-    // =======================================================================
-    // DURACIÓN REAL DE CADA SEGMENTO
-    // =======================================================================
-
     private fun getSegmentDurationSeconds(
         durationUs: Long,
         startUs: Long
@@ -977,14 +1140,6 @@ private object ReplayGainCalculator {
             remainingUs /
                     1_000_000.0
 
-        // ===============================================================
-        // Canciones cortas:
-        // máximo 15 segundos.
-        //
-        // Canciones largas:
-        // 5 segundos por segmento.
-        // ===============================================================
-
         return minOf(
             if (
                 durationUs /
@@ -1003,15 +1158,6 @@ private object ReplayGainCalculator {
         )
     }
 
-    // =======================================================================
-    // MEDIR SEGMENTO
-    // =======================================================================
-    //
-    // Recibe el extractor y decoder YA CREADOS.
-    //
-    // Esto evita crear MediaExtractor y MediaCodec repetidamente.
-    // =======================================================================
-
     private fun measureSegmentWithExistingDecoder(
         extractor: MediaExtractor,
         codec: MediaCodec,
@@ -1026,10 +1172,6 @@ private object ReplayGainCalculator {
             return emptyList()
         }
 
-        // ===================================================================
-        // REPOSICIONAR EXTRACTOR
-        // ===================================================================
-
         try {
 
             extractor.seekTo(
@@ -1042,15 +1184,6 @@ private object ReplayGainCalculator {
 
             return emptyList()
         }
-
-        // ===================================================================
-        // LIMPIAR EL DECODER
-        // ===================================================================
-        //
-        // codec.flush() elimina los datos pendientes del segmento anterior.
-        //
-        // La instancia del codec sigue siendo la misma.
-        // ===================================================================
 
         try {
 
@@ -1207,10 +1340,6 @@ private object ReplayGainCalculator {
                 maxFrames
             ) {
 
-                // ===========================================================
-                // ENTRADA AL DECODER
-                // ===========================================================
-
                 if (
                     !sawInputEOS
                 ) {
@@ -1272,10 +1401,6 @@ private object ReplayGainCalculator {
                         }
                     }
                 }
-
-                // ===========================================================
-                // SALIDA DEL DECODER
-                // ===========================================================
 
                 when (
                     val outputIndex =
@@ -1386,14 +1511,6 @@ private object ReplayGainCalculator {
                                 .coerceAtLeast(
                                     1
                                 )
-
-                        // =====================================================
-                        // REINICIAR FILTROS
-                        // =====================================================
-                        //
-                        // Cada segmento debe tener su propio estado de filtros
-                        // y ventana de medición.
-                        // =====================================================
 
                         channelFilters =
                             Array(
@@ -1526,10 +1643,6 @@ private object ReplayGainCalculator {
         return blockPowers
     }
 
-    // =======================================================================
-    // PROCESAR PCM
-    // =======================================================================
-
     private fun processPcmBuffer(
         buffer: java.nio.ByteBuffer,
         pcmEncoding: Int,
@@ -1562,10 +1675,6 @@ private object ReplayGainCalculator {
         when (
             pcmEncoding
         ) {
-
-            // ===============================================================
-            // PCM FLOAT
-            // ===============================================================
 
             AudioFormat
                 .ENCODING_PCM_FLOAT -> {
@@ -1606,12 +1715,9 @@ private object ReplayGainCalculator {
 
                         processSample(
                             sample = sample,
-
                             channel = channel,
-
                             channelFilters =
                                 channelFilters,
-
                             channelMeters =
                                 channelMeters
                         )
@@ -1622,19 +1728,14 @@ private object ReplayGainCalculator {
                     addBlockIfNeeded(
                         frameIndex =
                             currentFrame,
-
                         blockSize =
                             blockSize,
-
                         stepSize =
                             stepSize,
-
                         channelWeights =
                             channelWeights,
-
                         channelMeters =
                             channelMeters,
-
                         blockPowers =
                             blockPowers
                     )
@@ -1642,10 +1743,6 @@ private object ReplayGainCalculator {
                     frame++
                 }
             }
-
-            // ===============================================================
-            // PCM 16-BIT
-            // ===============================================================
 
             AudioFormat
                 .ENCODING_PCM_16BIT -> {
@@ -1685,12 +1782,9 @@ private object ReplayGainCalculator {
 
                         processSample(
                             sample = sample,
-
                             channel = channel,
-
                             channelFilters =
                                 channelFilters,
-
                             channelMeters =
                                 channelMeters
                         )
@@ -1701,19 +1795,14 @@ private object ReplayGainCalculator {
                     addBlockIfNeeded(
                         frameIndex =
                             currentFrame,
-
                         blockSize =
                             blockSize,
-
                         stepSize =
                             stepSize,
-
                         channelWeights =
                             channelWeights,
-
                         channelMeters =
                             channelMeters,
-
                         blockPowers =
                             blockPowers
                     )
@@ -1722,23 +1811,13 @@ private object ReplayGainCalculator {
                 }
             }
 
-            // ===============================================================
-            // PCM NO SOPORTADO
-            // ===============================================================
-
             else -> {
-
-                // Ignoramos formatos PCM no soportados para evitar interpretar
-                // incorrectamente los bytes y obtener valores falsos.
+                // PCM no soportado.
             }
         }
 
         return currentFrame
     }
-
-    // =======================================================================
-    // PROCESAR MUESTRA
-    // =======================================================================
 
     private fun processSample(
         sample: Double,
@@ -1760,10 +1839,6 @@ private object ReplayGainCalculator {
                 filtered
             )
     }
-
-    // =======================================================================
-    // CREAR BLOQUE DE LOUDNESS
-    // =======================================================================
 
     private fun addBlockIfNeeded(
         frameIndex: Long,
@@ -1821,10 +1896,6 @@ private object ReplayGainCalculator {
         }
     }
 
-    // =======================================================================
-    // GATING
-    // =======================================================================
-
     private fun computeGainFromBlockPowers(
         blockPowers: List<Double>
     ): Double? {
@@ -1834,10 +1905,6 @@ private object ReplayGainCalculator {
         ) {
             return null
         }
-
-        // ===============================================================
-        // ABSOLUTE GATE
-        // ===============================================================
 
         val absoluteGated =
             blockPowers.filter {
@@ -1852,10 +1919,6 @@ private object ReplayGainCalculator {
         ) {
             return null
         }
-
-        // ===============================================================
-        // RELATIVE GATE
-        // ===============================================================
 
         val ungatedMeanPower =
             absoluteGated.average()
@@ -1929,10 +1992,6 @@ private object ReplayGainCalculator {
         )
     }
 
-    // =======================================================================
-    // LUFS
-    // =======================================================================
-
     private fun loudnessOf(
         power: Double
     ): Double {
@@ -1970,10 +2029,6 @@ private class KWeightingFilter(
         val rate =
             sampleRate
                 .toDouble()
-
-        // ===================================================================
-        // HIGH SHELF
-        // ===================================================================
 
         val f0Stage1 =
             1681.974450955533
@@ -2061,10 +2116,6 @@ private class KWeightingFilter(
                     ) /
                             a0Stage1
             )
-
-        // ===================================================================
-        // HIGH PASS / RLB
-        // ===================================================================
 
         val f0Stage2 =
             38.13547087602444

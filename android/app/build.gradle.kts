@@ -21,6 +21,7 @@ android {
 
     packaging {
     jniLibs {
+        useLegacyPackaging = true
         keepDebugSymbols += setOf(
             "**/libaria2c.zip.so",
             "**/libffmpeg.zip.so",
@@ -28,6 +29,8 @@ android {
             )
         }
     }
+
+    
 
     defaultConfig {
         applicationId = "com.example.sonara"
