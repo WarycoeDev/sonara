@@ -431,9 +431,7 @@ class YouTubeDownloadService {
     };
   }
 
-  // ===========================================================================
   // DIRECTORIO DE DESCARGA
-  // ===========================================================================
 
   /// En Android esta carpeta es temporal.
   ///
@@ -517,9 +515,7 @@ class YouTubeDownloadService {
     return directory;
   }
 
-  // ===========================================================================
   // PUBLICAR EN MUSIC
-  // ===========================================================================
 
   /// Publica el MP3 terminado en la carpeta pública Music de Android.
   ///
@@ -589,9 +585,7 @@ class YouTubeDownloadService {
     }
   }
 
-  // ===========================================================================
   // CACHÉ PERSISTENTE DE EXTRACTOR
-  // ===========================================================================
 
   Future<Directory> _getExtractorCacheDirectory() async {
     final cached = _extractorCacheDirectory;
@@ -617,9 +611,7 @@ class YouTubeDownloadService {
     return cacheDirectory;
   }
 
-  // ===========================================================================
   // CARÁTULA
-  // ===========================================================================
 
   Future<void> _attachSquareThumbnail({
     required File mp3File,

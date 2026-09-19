@@ -58,9 +58,7 @@ class _SearchPageState extends State<SearchPage> {
     _searchController.addListener(_onSearchChanged);
   }
 
-  // ===========================================================================
   // CAMBIO EN LA BARRA DE BÚSQUEDA
-  // ===========================================================================
 
   void _onSearchChanged() {
     final query = _searchController.text.trim();
@@ -84,9 +82,7 @@ class _SearchPageState extends State<SearchPage> {
     });
   }
 
-  // ===========================================================================
   // BÚSQUEDA LOCAL
-  // ===========================================================================
 
   Future<void> _performSearch(String query) async {
     if (!mounted) {
@@ -131,9 +127,7 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  // ===========================================================================
   // BÚSQUEDA EN YOUTUBE
-  // ===========================================================================
 
   Future<void> _searchYouTube(String query) async {
     final trimmedQuery = query.trim();
@@ -188,9 +182,7 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  // ===========================================================================
   // CARGAR MÁS RESULTADOS DE YOUTUBE
-  // ===========================================================================
 
   Future<void> _loadMoreYouTube() async {
     final currentState = _searchState.value;
@@ -254,9 +246,7 @@ class _SearchPageState extends State<SearchPage> {
     }
   }
 
-  // ===========================================================================
   // DESCARGAR AUDIO DE YOUTUBE
-  // ===========================================================================
 
   Future<void> _downloadYouTubeAudio(
     BuildContext context,
@@ -650,9 +640,7 @@ class _SearchPageState extends State<SearchPage> {
   }
 }
 
-// ============================================================================
 // ESTADO DE BÚSQUEDA
-// ============================================================================
 
 class _SearchState {
   final String query;
@@ -761,9 +749,7 @@ class _DownloadDialogState {
       message = message;
 }
 
-// ============================================================================
 // BARRA DE BÚSQUEDA
-// ============================================================================
 
 class _SearchField extends StatelessWidget {
   final TextEditingController controller;
@@ -832,9 +818,7 @@ class _SearchField extends StatelessWidget {
   }
 }
 
-// ============================================================================
 // ACCIONES DE BÚSQUEDA
-// ============================================================================
 
 class _SearchActions extends StatelessWidget {
   final String query;
@@ -916,9 +900,7 @@ class _SearchActions extends StatelessWidget {
   }
 }
 
-// ============================================================================
 // RESULTADOS
-// ============================================================================
 
 class _SearchResultsSliver extends StatelessWidget {
   final _SearchState state;
@@ -1165,9 +1147,7 @@ class _SearchResultsSliver extends StatelessWidget {
   }
 }
 
-// ============================================================================
 // RESULTADO DE YOUTUBE
-// ============================================================================
 
 class _YouTubeSearchListTile extends StatelessWidget {
   final YouTubeSearchResult result;
@@ -1276,9 +1256,7 @@ class _YouTubeSearchListTile extends StatelessWidget {
   }
 }
 
-// ============================================================================
 // SIN RESULTADOS
-// ============================================================================
 
 class _EmptyResultsSliver extends StatelessWidget {
   final String query;
@@ -1332,9 +1310,7 @@ class _EmptyResultsSliver extends StatelessWidget {
   }
 }
 
-// ============================================================================
 // VISTA INICIAL
-// ============================================================================
 
 class _DefaultSearchViewSliver extends StatelessWidget {
   const _DefaultSearchViewSliver();
@@ -1394,9 +1370,7 @@ class _DefaultSearchViewSliver extends StatelessWidget {
   }
 }
 
-// ============================================================================
 // CANCIÓN LOCAL
-// ============================================================================
 
 class _SearchSongListTile extends StatelessWidget {
   final Song song;
@@ -1585,9 +1559,7 @@ class _SearchSongListTile extends StatelessWidget {
 
 enum _SongTapAction { replaceQueue, addToQueue, removeFromQueue, cancel }
 
-// ============================================================================
 // GESTIÓN DE CARÁTULAS
-// ============================================================================
 
 class _LibraryArtwork extends StatelessWidget {
   final String? coverPath;
@@ -1703,9 +1675,7 @@ class _LibraryArtwork extends StatelessWidget {
   }
 }
 
-// ============================================================================
 // CARÁTULAS ANDROID
-// ============================================================================
 
 class _AndroidLibraryArtwork extends StatefulWidget {
   final String uri;
@@ -1900,9 +1870,7 @@ class _AndroidLibraryArtworkState extends State<_AndroidLibraryArtwork> {
   }
 }
 
-// ============================================================================
 // INDICADOR DE REPRODUCCIÓN
-// ============================================================================
 
 class _PlayingOverlay extends StatelessWidget {
   final double size;
@@ -1929,9 +1897,7 @@ class _PlayingOverlay extends StatelessWidget {
   }
 }
 
-// ============================================================================
 // FORMATO DURACIÓN LOCAL
-// ============================================================================
 
 String _formatDuration(Duration duration) {
   final totalSeconds = duration.inSeconds;
@@ -1943,9 +1909,7 @@ String _formatDuration(Duration duration) {
   return '$minutes:${seconds.toString().padLeft(2, '0')}';
 }
 
-// ============================================================================
 // FORMATO DURACIÓN YOUTUBE
-// ============================================================================
 
 String _formatYouTubeDuration(Duration duration) {
   final hours = duration.inHours;

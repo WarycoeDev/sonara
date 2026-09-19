@@ -13,9 +13,7 @@ class AndroidMusicService {
 
   Future<List<Song>>? _loadingFuture;
 
-  // ===========================================================================
   // ACTUALIZAR BIBLIOTECA
-  // ===========================================================================
 
   Future<List<Song>> refreshLibrary(List<Song> cachedSongs) async {
     if (!Platform.isAndroid) {
@@ -109,9 +107,7 @@ class AndroidMusicService {
     return song.fileLastModified == lastModified && song.fileSize == fileSize;
   }
 
-  // ===========================================================================
   // PERMISO
-  // ===========================================================================
 
   Future<bool> _requestAudioPermission() async {
     try {
@@ -131,9 +127,7 @@ class AndroidMusicService {
     }
   }
 
-  // ===========================================================================
   // LEER METADATOS
-  // ===========================================================================
 
   Future<Song> _loadSongMetadata({
     required String filePath,
@@ -210,9 +204,7 @@ class AndroidMusicService {
     }
   }
 
-  // ===========================================================================
   // REPLAYGAIN
-  // ===========================================================================
 
   Future<double?> calculateTrackGain(String filePath) async {
     if (!Platform.isAndroid) {
@@ -264,9 +256,7 @@ class AndroidMusicService {
     }
   }
 
-  // ===========================================================================
   // CARÁTULA
-  // ===========================================================================
 
   Future<String?> _getCover({
     required String filePath,
@@ -290,9 +280,7 @@ class AndroidMusicService {
     return _artworkService.extractCover(filePath: filePath, songId: songId);
   }
 
-  // ===========================================================================
   // UTILIDADES
-  // ===========================================================================
 
   int? _readInt(dynamic value) {
     if (value is num) {

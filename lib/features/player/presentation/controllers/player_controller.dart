@@ -79,9 +79,7 @@ class PlayerController extends ChangeNotifier {
     _listenToPlayer();
   }
 
-  // ===========================================================================
   // GETTERS
-  // ===========================================================================
 
   Song? get currentSong => _currentSong;
 
@@ -150,9 +148,7 @@ class PlayerController extends ChangeNotifier {
     return _currentIndex > 0;
   }
 
-  // ===========================================================================
   // STREAMS
-  // ===========================================================================
 
   void _listenToPlayer() {
     _positionSubscription = _audioPlayerService.positionStream.listen(
@@ -172,9 +168,7 @@ class PlayerController extends ChangeNotifier {
     );
   }
 
-  // ===========================================================================
   // ÍNDICE
-  // ===========================================================================
 
   void _handleCurrentIndex(int? index) {
     if (_isDisposed || index == null || index < 0 || index >= _queue.length) {
@@ -200,9 +194,7 @@ class PlayerController extends ChangeNotifier {
     _notify();
   }
 
-  // ===========================================================================
   // POSICIÓN
-  // ===========================================================================
 
   void _handlePosition(Duration newPosition) {
     if (_isDisposed || _isSeeking) {
@@ -235,9 +227,7 @@ class PlayerController extends ChangeNotifier {
     _notify();
   }
 
-  // ===========================================================================
   // DURACIÓN
-  // ===========================================================================
 
   void _handleDuration(Duration? duration) {
     if (_isDisposed) {
@@ -259,9 +249,7 @@ class PlayerController extends ChangeNotifier {
     _notify();
   }
 
-  // ===========================================================================
   // ESTADO
-  // ===========================================================================
 
   void _handlePlayerState(PlayerState state) {
     if (_isDisposed) {
@@ -311,9 +299,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // COMPLETADO
-  // ===========================================================================
 
   void _checkCompletionFallback() {
     if (_isDisposed ||
@@ -395,9 +381,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // ESTADÍSTICAS
-  // ===========================================================================
 
   void _registerCurrentPlayback() {
     if (_isDisposed || _currentSong == null || _hasRegisteredCurrentPlayback) {
@@ -422,9 +406,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // TICKER
-  // ===========================================================================
 
   void _startPositionTicker() {
     if (_positionTicker != null) {
@@ -450,9 +432,7 @@ class PlayerController extends ChangeNotifier {
     _positionTicker = null;
   }
 
-  // ===========================================================================
   // NUEVA COLA
-  // ===========================================================================
 
   Future<void> _playNewQueue(List<Song> songs, int index) async {
     if (songs.isEmpty || index < 0 || index >= songs.length || _isDisposed) {
@@ -537,9 +517,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // REPRODUCIR ÍNDICE EXISTENTE
-  // ===========================================================================
 
   Future<void> _playExistingQueueIndex(int index) async {
     if (_queue.isEmpty || index < 0 || index >= _queue.length || _isDisposed) {
@@ -614,17 +592,13 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // REPRODUCIR CANCIÓN
-  // ===========================================================================
 
   Future<void> playSong(Song song) async {
     await _playNewQueue([song], 0);
   }
 
-  // ===========================================================================
   // REPRODUCIR LISTA
-  // ===========================================================================
 
   Future<void> playFromQueue(List<Song> songs, {int startIndex = 0}) async {
     if (songs.isEmpty) {
@@ -636,9 +610,7 @@ class PlayerController extends ChangeNotifier {
     await _playNewQueue(songs, safeIndex);
   }
 
-  // ===========================================================================
   // REPRODUCIR DESDE LISTA
-  // ===========================================================================
 
   Future<void> playSongFromList(List<Song> songs, Song song) async {
     if (songs.isEmpty) {
@@ -654,9 +626,7 @@ class PlayerController extends ChangeNotifier {
     await _playNewQueue(songs, index);
   }
 
-  // ===========================================================================
   // SIGUIENTE
-  // ===========================================================================
 
   Future<void> playNext() async {
     if (_queue.isEmpty) {
@@ -692,9 +662,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // ANTERIOR
-  // ===========================================================================
 
   Future<void> playPrevious() async {
     if (_queue.isEmpty || _currentIndex < 0) {
@@ -738,9 +706,7 @@ class PlayerController extends ChangeNotifier {
     return index;
   }
 
-  // ===========================================================================
   // CONTROLES
-  // ===========================================================================
 
   Future<void> pause() {
     return _audioPlayerService.pause();
@@ -766,9 +732,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // SEEK
-  // ===========================================================================
 
   Future<void> seek(Duration newPosition) async {
     if (_currentSong == null) {
@@ -806,9 +770,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // FAVORITOS
-  // ===========================================================================
 
   Future<void> toggleFavorite() async {
     final song = _currentSong;
@@ -837,9 +799,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // MODOS
-  // ===========================================================================
 
   void toggleShuffle() {
     _isShuffleEnabled = !_isShuffleEnabled;
@@ -867,9 +827,7 @@ class PlayerController extends ChangeNotifier {
     _notify();
   }
 
-  // ===========================================================================
   // AGREGAR
-  // ===========================================================================
 
   Future<void> addToQueue(Song song) async {
     if (_isDisposed || isInQueue(song.id)) {
@@ -899,9 +857,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // AGREGAR VARIAS
-  // ===========================================================================
 
   Future<void> addSongsToQueue(List<Song> songs) async {
     if (songs.isEmpty || _isDisposed) {
@@ -937,9 +893,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // ELIMINAR
-  // ===========================================================================
 
   Future<void> removeFromQueue(Song song) async {
     if (_isDisposed) {
@@ -952,7 +906,6 @@ class PlayerController extends ChangeNotifier {
       return;
     }
 
-    // ===========================================================================
     // IMPORTANTE:
     // La canción debe desaparecer de la cola INMEDIATAMENTE.
     //
@@ -961,7 +914,6 @@ class PlayerController extends ChangeNotifier {
     // el Dismissible sigue existiendo en el árbol y Flutter lanza:
     //
     // "A dismissed Dismissible widget is still part of the tree."
-    // ===========================================================================
 
     _queue.removeAt(index);
 
@@ -974,9 +926,7 @@ class PlayerController extends ChangeNotifier {
     // desaparezca del árbol.
     _notify();
 
-    // ===========================================================================
     // Ahora sincronizamos el reproductor de audio.
-    // ===========================================================================
 
     try {
       await _audioPlayerService.removeFromQueue(index);
@@ -1008,9 +958,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // REORDENAR
-  // ===========================================================================
 
   Future<void> reorderQueue(int oldIndex, int newIndex) async {
     if (oldIndex < 0 ||
@@ -1042,9 +990,7 @@ class PlayerController extends ChangeNotifier {
     _notify();
   }
 
-  // ===========================================================================
   // ELIMINAR REPRODUCTOR
-  // ===========================================================================
 
   Future<void> removeCurrentSong() async {
     ++_playbackRequestId;
@@ -1078,9 +1024,7 @@ class PlayerController extends ChangeNotifier {
     await removeCurrentSong();
   }
 
-  // ===========================================================================
   // NOTIFICAR
-  // ===========================================================================
 
   void _notify() {
     if (!_isDisposed) {
@@ -1088,9 +1032,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ===========================================================================
   // DISPOSE
-  // ===========================================================================
 
   @override
   void dispose() {

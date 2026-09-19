@@ -22,15 +22,11 @@ class AudioPlayerService {
 
   factory AudioPlayerService() => instance;
 
-  // ===========================================================================
   // PLATFORM
-  // ===========================================================================
 
   bool get _isLinux => Platform.isLinux;
 
-  // ===========================================================================
   // PLAYER
-  // ===========================================================================
 
   final AudioPlayer _player = AudioPlayer();
 
@@ -48,9 +44,7 @@ class AudioPlayerService {
 
   int _linuxLoadGeneration = 0;
 
-  // ===========================================================================
   // STREAMS
-  // ===========================================================================
 
   final StreamController<PlayerState> _playerStateController =
       StreamController<PlayerState>.broadcast();
@@ -64,9 +58,7 @@ class AudioPlayerService {
   final StreamController<Duration?> _durationController =
       StreamController<Duration?>.broadcast();
 
-  // ===========================================================================
   // SUSCRIPCIONES
-  // ===========================================================================
 
   StreamSubscription<PlayerState>? _playerStateSubscription;
 
@@ -76,9 +68,7 @@ class AudioPlayerService {
 
   StreamSubscription<int?>? _currentIndexSubscription;
 
-  // ===========================================================================
   // REPLAYGAIN
-  // ===========================================================================
 
   double _baseVolume = 1.0;
 
@@ -94,9 +84,7 @@ class AudioPlayerService {
 
   bool _volumeUpdatePending = false;
 
-  // ===========================================================================
   // CROSSFADE
-  // ===========================================================================
 
   final CrossfadeService _crossfadeService = CrossfadeService.instance;
 
@@ -108,15 +96,11 @@ class AudioPlayerService {
 
   bool _crossfadeCheckInProgress = false;
 
-  // ===========================================================================
   // ESTADO
-  // ===========================================================================
 
   bool _isDisposed = false;
 
-  // ===========================================================================
   // MODOS
-  // ===========================================================================
 
   bool _shuffleEnabled = false;
 
@@ -128,9 +112,7 @@ class AudioPlayerService {
 
   final math.Random _random = math.Random();
 
-  // ===========================================================================
   // STREAMS PÚBLICOS
-  // ===========================================================================
 
   Stream<PlayerState> get playerStateStream => _playerStateController.stream;
 
@@ -152,9 +134,7 @@ class AudioPlayerService {
     }, isBroadcast: true);
   }
 
-  // ===========================================================================
   // GETTERS
-  // ===========================================================================
 
   bool get playing => _player.playing;
 
@@ -174,9 +154,7 @@ class AudioPlayerService {
 
   bool get isCrossfading => _crossfadeInProgress;
 
-  // ===========================================================================
   // LISTENERS
-  // ===========================================================================
 
   void _listenToPlayer() {
     _playerStateSubscription = _player.playerStateStream.listen((state) {
@@ -296,9 +274,7 @@ class AudioPlayerService {
     }
   }
 
-  // ===========================================================================
   // AUDIO SOURCE
-  // ===========================================================================
 
   Future<AudioSource> _createAudioSource(Song song) async {
     final file = File(song.filePath);
@@ -312,9 +288,7 @@ class AudioPlayerService {
     return AudioSource.uri(Uri.file(song.filePath), tag: mediaItem);
   }
 
-  // ===========================================================================
   // CARGAR CANCIÓN INDIVIDUAL EN LINUX
-  // ===========================================================================
 
   Future<Duration?> _loadLinuxSong(
     int index, {
@@ -420,9 +394,7 @@ class AudioPlayerService {
     }
   }
 
-  // ===========================================================================
   // REPLAYGAIN
-  // ===========================================================================
 
   void _updateTrackGain(Song song) {
     final gainDb = song.volumeGain;
@@ -466,9 +438,7 @@ class AudioPlayerService {
     return (_baseVolume * _replayGainPreamp * gain).clamp(0.0, 1.0).toDouble();
   }
 
-  // ===========================================================================
   // VOLUMEN
-  // ===========================================================================
 
   Future<void> _applyEffectiveVolume() async {
     if (_isDisposed) {
@@ -523,9 +493,7 @@ class AudioPlayerService {
     await _applyEffectiveVolume();
   }
 
-  // ===========================================================================
   // CROSSFADE - CONFIGURACIÓN
-  // ===========================================================================
 
   void _handleCrossfadeSettingChanged() {
     if (_isDisposed) {
@@ -568,9 +536,7 @@ class AudioPlayerService {
     _crossfadeMonitor = null;
   }
 
-  // ===========================================================================
   // CROSSFADE - COMPROBAR
-  // ===========================================================================
 
   Future<void> _checkCrossfade() async {
     if (_isDisposed ||
@@ -614,9 +580,7 @@ class AudioPlayerService {
     }
   }
 
-  // ===========================================================================
   // SIGUIENTE ÍNDICE
-  // ===========================================================================
 
   int? _getCrossfadeNextIndex() {
     final index = currentIndex;
@@ -649,9 +613,7 @@ class AudioPlayerService {
     return null;
   }
 
-  // ===========================================================================
   // CROSSFADE - EJECUTAR
-  // ===========================================================================
 
   Future<void> _performCrossfade() async {
     if (_crossfadeInProgress || _isDisposed || !_crossfadeService.enabled) {
@@ -804,9 +766,7 @@ class AudioPlayerService {
     }
   }
 
-  // ===========================================================================
   // COLA
-  // ===========================================================================
 
   Future<Duration?> setQueue(
     List<Song> songs, {
@@ -865,9 +825,7 @@ class AudioPlayerService {
     return _waitForDuration();
   }
 
-  // ===========================================================================
   // REPRODUCIR COLA
-  // ===========================================================================
 
   Future<Duration?> playQueue(
     List<Song> songs, {
@@ -880,9 +838,7 @@ class AudioPlayerService {
     return duration;
   }
 
-  // ===========================================================================
   // REPRODUCIR ÍNDICE
-  // ===========================================================================
 
   Future<Duration?> playAtIndex(int index) async {
     if (_songs.isEmpty || index < 0 || index >= _songs.length) {
@@ -942,9 +898,7 @@ class AudioPlayerService {
     return playQueue([song], initialIndex: 0);
   }
 
-  // ===========================================================================
   // SINCRONIZAR COLA
-  // ===========================================================================
 
   Future<void> syncQueue(
     List<Song> songs, {
@@ -979,9 +933,7 @@ class AudioPlayerService {
     }
   }
 
-  // ===========================================================================
   // AGREGAR
-  // ===========================================================================
 
   Future<void> addToQueue(Song song) async {
     if (_songs.any((item) => item.id == song.id)) {
@@ -1078,9 +1030,7 @@ class AudioPlayerService {
     _emitCurrentState();
   }
 
-  // ===========================================================================
   // ELIMINAR
-  // ===========================================================================
 
   Future<void> removeFromQueue(int index) async {
     if (index < 0 || index >= _songs.length) {
@@ -1125,9 +1075,7 @@ class AudioPlayerService {
     _emitCurrentState();
   }
 
-  // ===========================================================================
   // REORDENAR
-  // ===========================================================================
 
   Future<void> reorderQueue(int oldIndex, int newIndex) async {
     if (oldIndex < 0 ||
@@ -1181,9 +1129,7 @@ class AudioPlayerService {
     _emitCurrentState();
   }
 
-  // ===========================================================================
   // CANCELAR TRANSICIÓN
-  // ===========================================================================
 
   void _cancelTransition() {
     _crossfadeGeneration++;
@@ -1199,9 +1145,7 @@ class AudioPlayerService {
     _stopCrossfadeMonitor();
   }
 
-  // ===========================================================================
   // SIGUIENTE
-  // ===========================================================================
 
   Future<bool> playNext() async {
     if (_songs.isEmpty) {
@@ -1246,9 +1190,7 @@ class AudioPlayerService {
     return true;
   }
 
-  // ===========================================================================
   // ANTERIOR
-  // ===========================================================================
 
   Future<bool> playPrevious() async {
     if (_songs.isEmpty) {
@@ -1311,9 +1253,7 @@ class AudioPlayerService {
     return index;
   }
 
-  // ===========================================================================
   // CONTROLES
-  // ===========================================================================
 
   Future<void> play() async {
     if (_songs.isEmpty) {
@@ -1368,9 +1308,7 @@ class AudioPlayerService {
     await _player.stop();
   }
 
-  // ===========================================================================
   // SEEK
-  // ===========================================================================
 
   Future<void> seek(Duration position, {int? index}) async {
     _cancelTransition();
@@ -1398,9 +1336,7 @@ class AudioPlayerService {
     }
   }
 
-  // ===========================================================================
   // VOLUMEN
-  // ===========================================================================
 
   Future<void> setVolume(double volume) async {
     _baseVolume = volume.clamp(0.0, 1.0).toDouble();
@@ -1412,17 +1348,13 @@ class AudioPlayerService {
     await _applyEffectiveVolume();
   }
 
-  // ===========================================================================
   // VELOCIDAD
-  // ===========================================================================
 
   Future<void> setSpeed(double speed) async {
     await _player.setSpeed(speed);
   }
 
-  // ===========================================================================
   // MODOS
-  // ===========================================================================
 
   void setPlaybackModes({
     required bool shuffleEnabled,
@@ -1433,9 +1365,7 @@ class AudioPlayerService {
     _repeatMode = repeatMode;
   }
 
-  // ===========================================================================
   // DURACIÓN
-  // ===========================================================================
 
   Future<Duration?> _waitForDuration() async {
     final currentDuration = _player.duration;
@@ -1454,9 +1384,7 @@ class AudioPlayerService {
     }
   }
 
-  // ===========================================================================
   // MEDIA ITEM
-  // ===========================================================================
 
   Future<MediaItem> _createMediaItem(Song song) async {
     Uri? artworkUri;
@@ -1491,9 +1419,7 @@ class AudioPlayerService {
     return result;
   }
 
-  // ===========================================================================
   // ESTADO
-  // ===========================================================================
 
   void _emitCurrentState() {
     final index = currentIndex;
@@ -1515,9 +1441,7 @@ class AudioPlayerService {
     }
   }
 
-  // ===========================================================================
   // LIMPIAR
-  // ===========================================================================
 
   Future<void> clear() async {
     _cancelTransition();
@@ -1564,9 +1488,7 @@ class AudioPlayerService {
     }
   }
 
-  // ===========================================================================
   // DISPOSE
-  // ===========================================================================
 
   Future<void> dispose() async {
     if (_isDisposed) {

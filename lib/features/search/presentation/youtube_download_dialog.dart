@@ -22,9 +22,7 @@ class YouTubeDownloadDialog {
   }
 }
 
-// ============================================================================
 // MODELO DE LA SOLICITUD
-// ============================================================================
 
 class YouTubeDownloadRequest {
   final YouTubeSearchResult result;
@@ -40,9 +38,7 @@ class YouTubeDownloadRequest {
   });
 }
 
-// ============================================================================
 // MENÚ DE DESCARGA
-// ============================================================================
 
 class _YouTubeDownloadSheet extends StatefulWidget {
   final YouTubeSearchResult result;

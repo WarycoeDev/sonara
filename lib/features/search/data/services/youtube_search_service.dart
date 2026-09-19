@@ -21,9 +21,7 @@ class YouTubeSearchService {
 
   VideoSearchList? _searchList;
 
-  // ===========================================================================
   // BÚSQUEDA INICIAL
-  // ===========================================================================
 
   Future<List<YouTubeSearchResult>> search(String query) async {
     final trimmedQuery = query.trim();
@@ -47,9 +45,7 @@ class YouTubeSearchService {
     }
   }
 
-  // ===========================================================================
   // SIGUIENTE PÁGINA
-  // ===========================================================================
 
   Future<List<YouTubeSearchResult>> loadMore() async {
     final currentSearchList = _searchList;
@@ -73,9 +69,7 @@ class YouTubeSearchService {
     }
   }
 
-  // ===========================================================================
   // CONVERTIR VIDEOS
-  // ===========================================================================
 
   List<YouTubeSearchResult> _convertResults(Iterable<Video> results) {
     return results.map((video) {
@@ -89,9 +83,7 @@ class YouTubeSearchService {
     }).toList();
   }
 
-  // ===========================================================================
   // CERRAR
-  // ===========================================================================
 
   void dispose() {
     _youtube.close();

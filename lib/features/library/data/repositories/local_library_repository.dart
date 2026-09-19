@@ -54,9 +54,7 @@ class LocalLibraryRepository implements LibraryRepository {
 
   bool _hasLoaded = false;
 
-  // ===========================================================================
   // OBTENER CANCIONES
-  // ===========================================================================
 
   @override
   Future<List<Song>> getSongs() async {
@@ -65,9 +63,7 @@ class LocalLibraryRepository implements LibraryRepository {
     return _songsView;
   }
 
-  // ===========================================================================
   // CARGAR CACHÉ
-  // ===========================================================================
 
   Future<void> _ensureLibraryLoaded() async {
     if (_hasLoaded) {
@@ -124,9 +120,7 @@ class LocalLibraryRepository implements LibraryRepository {
     }
   }
 
-  // ===========================================================================
   // ESCANEAR BIBLIOTECA
-  // ===========================================================================
 
   @override
   Future<void> scanLibrary() async {
@@ -185,9 +179,7 @@ class LocalLibraryRepository implements LibraryRepository {
     }
   }
 
-  // ===========================================================================
   // ANDROID
-  // ===========================================================================
 
   Future<void> _scanAndroidLibrary() async {
     final songs = await _androidMusicService.refreshLibrary(
@@ -197,9 +189,7 @@ class LocalLibraryRepository implements LibraryRepository {
     _replaceSongs(songs);
   }
 
-  // ===========================================================================
   // LINUX
-  // ===========================================================================
 
   Future<void> _scanLinuxLibrary(List<Song> previousSongs) async {
     final directoryPaths = await _musicDirectoryService.getMusicDirectories();
@@ -264,9 +254,7 @@ class LocalLibraryRepository implements LibraryRepository {
     return results.whereType<Song>().toList(growable: false);
   }
 
-  // ===========================================================================
   // DESKTOP
-  // ===========================================================================
 
   Future<void> _scanDesktopLibrary() async {
     final directoryPaths = await _musicDirectoryService.getMusicDirectories();
@@ -288,9 +276,7 @@ class LocalLibraryRepository implements LibraryRepository {
     _replaceSongs(songs);
   }
 
-  // ===========================================================================
   // REPLAYGAIN
-  // ===========================================================================
 
   Future<void> _applyReplayGain(List<Song> previousSongs) async {
     if (_songs.isEmpty) {
@@ -440,9 +426,7 @@ class LocalLibraryRepository implements LibraryRepository {
         previous.fileSize == current.fileSize;
   }
 
-  // ===========================================================================
   // ÁLBUMES
-  // ===========================================================================
 
   @override
   Future<List<Album>> getAlbums() async {
@@ -477,9 +461,7 @@ class LocalLibraryRepository implements LibraryRepository {
     return List<Album>.unmodifiable(albums);
   }
 
-  // ===========================================================================
   // ARTISTAS
-  // ===========================================================================
 
   @override
   Future<List<Artist>> getArtists() async {
@@ -510,9 +492,7 @@ class LocalLibraryRepository implements LibraryRepository {
     return List<Artist>.unmodifiable(artists);
   }
 
-  // ===========================================================================
   // BÚSQUEDA
-  // ===========================================================================
 
   @override
   Future<List<Song>> searchSongs(String query) async {
@@ -543,9 +523,7 @@ class LocalLibraryRepository implements LibraryRepository {
     return List<Song>.unmodifiable(results);
   }
 
-  // ===========================================================================
   // CREAR CANCIÓN LINUX
-  // ===========================================================================
 
   Future<Song> _createLinuxSongFromFile(File file, Song? previousSong) async {
     final stat = await file.stat();
@@ -575,9 +553,7 @@ class LocalLibraryRepository implements LibraryRepository {
     );
   }
 
-  // ===========================================================================
   // CREAR CANCIÓN DESKTOP
-  // ===========================================================================
 
   Song _createSongFromFile(File file) {
     final fileName = file.path.split(Platform.pathSeparator).last;
@@ -592,9 +568,7 @@ class LocalLibraryRepository implements LibraryRepository {
     );
   }
 
-  // ===========================================================================
   // REEMPLAZAR
-  // ===========================================================================
 
   void _replaceSongs(List<Song> songs) {
     _songs
@@ -606,9 +580,7 @@ class LocalLibraryRepository implements LibraryRepository {
     );
   }
 
-  // ===========================================================================
   // UTILIDADES
-  // ===========================================================================
 
   String _normalizeAlbum(String? album) {
     final value = album?.trim();

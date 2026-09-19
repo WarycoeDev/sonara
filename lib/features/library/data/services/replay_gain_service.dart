@@ -2,20 +2,13 @@ import 'dart:io';
 
 import 'android_music_service.dart';
 
-// ===========================================================================
 // REPLAYGAIN POR PISTA
-// ===========================================================================
-//
 // Calcula la ganancia de sonoridad de una pista.
-//
 // Android:
 // - Delega el cálculo al código nativo.
-//
 // Linux/Desktop:
 // - Usa ffmpeg + filtro ebur128.
-//
 // El resultado se guarda posteriormente en Song.volumeGain.
-// ===========================================================================
 
 class ReplayGainService {
   ReplayGainService({AndroidMusicService? androidMusicService})
@@ -23,9 +16,7 @@ class ReplayGainService {
 
   final AndroidMusicService _androidMusicService;
 
-  // ===========================================================================
   // CONFIGURACIÓN
-  // ===========================================================================
 
   /// Objetivo de sonoridad utilizado por Sonara.
   static const double _targetLoudnessLufs = -18.0;
@@ -38,9 +29,7 @@ class ReplayGainService {
     r'I:\s*(-?\d+(?:\.\d+)?)\s*LUFS',
   );
 
-  // ===========================================================================
   // CALCULAR GANANCIA
-  // ===========================================================================
 
   Future<double?> calculateTrackGain(String filePath) async {
     try {
@@ -64,9 +53,7 @@ class ReplayGainService {
     }
   }
 
-  // ===========================================================================
   // FFMPEG
-  // ===========================================================================
 
   Future<double?> _calculateViaFfmpeg(String filePath) async {
     final file = File(filePath);
@@ -133,9 +120,7 @@ class ReplayGainService {
     }
   }
 
-  // ===========================================================================
   // PARSEAR LUFS
-  // ===========================================================================
 
   double? _parseIntegratedLoudness(String ffmpegOutput) {
     final matches = _integratedLoudnessPattern
@@ -158,9 +143,7 @@ class ReplayGainService {
     return double.tryParse(value);
   }
 
-  // ===========================================================================
   // VALIDAR
-  // ===========================================================================
 
   double? _sanitize(double? gainDb) {
     if (gainDb == null || gainDb.isNaN || gainDb.isInfinite) {
