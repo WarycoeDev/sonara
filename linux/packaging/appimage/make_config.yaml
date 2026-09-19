@@ -1,0 +1,17 @@
+display_name: Sonara
+icon: assets/images/icon.png
+
+generic_name: Music Player
+
+categories:
+  - Audio
+  - Music
+
+keywords:
+  - music
+  - player
+  - sonara
+
+startup_notify: true
+
+include: []
