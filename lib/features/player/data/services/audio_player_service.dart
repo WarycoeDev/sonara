@@ -12,6 +12,12 @@ import '../../../library/domain/models/song.dart';
 
 class AudioPlayerService {
   AudioPlayerService._internal() {
+    _loudnessEnhancer = AndroidLoudnessEnhancer();
+
+    _player = AudioPlayer(
+      audioPipeline: AudioPipeline(androidAudioEffects: [_loudnessEnhancer]),
+    );
+
     _listenToPlayer();
 
     _crossfadeService.secondsNotifier.addListener(
@@ -19,6 +25,10 @@ class AudioPlayerService {
     );
 
     unawaited(_loadReplayGainPreamp());
+
+    if (Platform.isAndroid) {
+      unawaited(_initializeAndroidLoudnessEnhancer());
+    }
   }
 
   static final AudioPlayerService instance = AudioPlayerService._internal();
@@ -31,7 +41,8 @@ class AudioPlayerService {
 
   // PLAYER
 
-  final AudioPlayer _player = AudioPlayer();
+  late final AndroidLoudnessEnhancer _loudnessEnhancer;
+  late final AudioPlayer _player;
 
   final List<Song> _songs = [];
 
@@ -75,8 +86,8 @@ class AudioPlayerService {
   // ReplayGain puede producir valores superiores a +20 dB
   // o inferiores a -20 dB.
   //
-  // Estos límites solamente protegen contra valores absurdos
-  // o corruptos, pero permiten valores como +25 dB.
+  // Estos límites protegen contra valores absurdos/corruptos
+  // pero permiten valores como +25 dB.
   static const double _minimumGainDb = -60.0;
   static const double _maximumGainDb = 60.0;
 
@@ -96,6 +107,8 @@ class AudioPlayerService {
   bool _isApplyingVolume = false;
 
   bool _volumeUpdatePending = false;
+
+  bool _androidLoudnessEnhancerReady = false;
 
   // CROSSFADE
 
@@ -169,6 +182,71 @@ class AudioPlayerService {
 
   bool get isCrossfading => _crossfadeInProgress;
 
+  // ANDROID LOUDNESS ENHANCER
+
+  Future<void> _initializeAndroidLoudnessEnhancer() async {
+    if (!Platform.isAndroid || _isDisposed) {
+      return;
+    }
+
+    try {
+      await _loudnessEnhancer.setEnabled(true);
+
+      _androidLoudnessEnhancerReady = true;
+
+      debugPrint(
+        '[SONARA REPLAYGAIN] '
+        'Android LoudnessEnhancer habilitado.',
+      );
+
+      await _applyAndroidTrackGain();
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[SONARA REPLAYGAIN] '
+        'No se pudo habilitar Android LoudnessEnhancer: $error',
+      );
+
+      debugPrintStack(stackTrace: stackTrace);
+
+      _androidLoudnessEnhancerReady = false;
+    }
+  }
+
+  Future<void> _applyAndroidTrackGain() async {
+    if (!Platform.isAndroid || !_androidLoudnessEnhancerReady || _isDisposed) {
+      return;
+    }
+
+    Song? currentSong;
+
+    final index = currentIndex;
+
+    if (index != null && index >= 0 && index < _songs.length) {
+      currentSong = _songs[index];
+    }
+
+    final totalGainDb = currentSong == null
+        ? 0.0
+        : _getTotalGainDb(currentSong);
+
+    try {
+      await _loudnessEnhancer.setTargetGain(totalGainDb);
+
+      debugPrint(
+        '[SONARA REPLAYGAIN ANDROID] '
+        'Ganancia aplicada: '
+        '${totalGainDb.toStringAsFixed(2)} dB',
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[SONARA REPLAYGAIN ANDROID] '
+        'No se pudo aplicar la ganancia: $error',
+      );
+
+      debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
   // REPLAYGAIN PREAMP
 
   Future<void> _loadReplayGainPreamp() async {
@@ -215,7 +293,7 @@ class AudioPlayerService {
 
     replayGainPreampNotifier.value = safeValue;
 
-    // El nuevo Preamp se aplica inmediatamente al volumen actual.
+    // El nuevo Preamp se aplica inmediatamente.
     await _applyEffectiveVolume();
 
     if (!persist) {
@@ -450,6 +528,7 @@ class AudioPlayerService {
 
     if (gainDb == null || !gainDb.isFinite) {
       _currentTrackGainLinear = 1.0;
+
       return;
     }
 
@@ -462,7 +541,8 @@ class AudioPlayerService {
       '${song.title} | '
       'ReplayGain: ${safeGainDb.toStringAsFixed(2)} dB | '
       'Preamp: ${_replayGainPreampDb.toStringAsFixed(2)} dB | '
-      'Total: ${(safeGainDb + _replayGainPreampDb).toStringAsFixed(2)} dB | '
+      'Total: '
+      '${(safeGainDb + _replayGainPreampDb).toStringAsFixed(2)} dB | '
       'Factor ReplayGain: '
       '${_currentTrackGainLinear.toStringAsFixed(3)}',
     );
@@ -478,6 +558,12 @@ class AudioPlayerService {
     return gainDb.clamp(_minimumGainDb, _maximumGainDb).toDouble();
   }
 
+  double _getTotalGainDb(Song song) {
+    final replayGainDb = _getTrackGainDb(song);
+
+    return replayGainDb + _replayGainPreampDb;
+  }
+
   double _getTrackGainLinear(Song song) {
     return _dbToLinear(_getTrackGainDb(song));
   }
@@ -488,18 +574,47 @@ class AudioPlayerService {
 
   double _getEffectiveVolumeForSong(Song song) {
     final replayGainDb = _getTrackGainDb(song);
+    final totalGainDb = _getTotalGainDb(song);
 
-    // AQUÍ está la lógica correcta:
-    //
-    // ReplayGain + Preamp = ganancia total.
-    //
-    // Ejemplo:
-    // +25 dB + +5 dB = +30 dB
-    // +25 dB + -5 dB = +20 dB
-    // -25 dB + +5 dB = -20 dB
+    /*
+     * ANDROID
+     *
+     * ReplayGain + Preamp NO se convierte a volumen 0.0 - 1.0.
+     *
+     * La ganancia se aplica mediante AndroidLoudnessEnhancer.
+     * De esta forma:
+     *
+     * +25 dB + +5 dB = +30 dB
+     *
+     * y no:
+     *
+     * 31.62 * baseVolume -> clamp(1.0)
+     *
+     * En Android setVolume() queda únicamente para el volumen
+     * normal del reproductor.
+     */
+    if (Platform.isAndroid) {
+      debugPrint(
+        '[SONARA REPLAYGAIN ANDROID] '
+        '${song.title} | '
+        'ReplayGain: ${replayGainDb.toStringAsFixed(2)} dB | '
+        'Preamp: ${_replayGainPreampDb.toStringAsFixed(2)} dB | '
+        'Total: ${totalGainDb.toStringAsFixed(2)} dB | '
+        'Base: ${_baseVolume.toStringAsFixed(3)}',
+      );
 
-    final totalGainDb = replayGainDb + _replayGainPreampDb;
+      return _baseVolume;
+    }
 
+    /*
+     * LINUX / OTRAS PLATAFORMAS
+     *
+     * Se conserva el comportamiento anterior.
+     *
+     * Aquí just_audio solamente acepta el volumen normal 0.0 - 1.0,
+     * por lo que una ganancia positiva suficientemente grande termina
+     * limitada a 1.0.
+     */
     final totalGainLinear = _dbToLinear(totalGainDb);
 
     final effectiveVolume = _baseVolume * totalGainLinear;
@@ -515,10 +630,6 @@ class AudioPlayerService {
       'Volumen: ${effectiveVolume.toStringAsFixed(4)}',
     );
 
-    // just_audio trabaja con volumen 0.0 - 1.0.
-    //
-    // Por eso, si el resultado matemático supera 1.0,
-    // el reproductor lo limita a 1.0.
     return effectiveVolume.clamp(0.0, 1.0).toDouble();
   }
 
@@ -552,6 +663,21 @@ class AudioPlayerService {
           currentSong = _songs[index];
         }
 
+        /*
+         * Android:
+         *
+         * 1. AndroidLoudnessEnhancer recibe ReplayGain + Preamp.
+         * 2. setVolume recibe solamente el volumen base.
+         *
+         * Linux:
+         *
+         * setVolume recibe ReplayGain + Preamp convertido a lineal
+         * y limitado a 1.0.
+         */
+        if (Platform.isAndroid) {
+          await _applyAndroidTrackGain();
+        }
+
         final effectiveVolume = currentSong == null
             ? _baseVolume
             : _getEffectiveVolumeForSong(currentSong);
@@ -566,6 +692,12 @@ class AudioPlayerService {
   Future<void> _setTrackGainForIndex(int index) async {
     if (index < 0 || index >= _songs.length) {
       _currentTrackGainLinear = 1.0;
+
+      if (Platform.isAndroid && _androidLoudnessEnhancerReady) {
+        try {
+          await _loudnessEnhancer.setTargetGain(0.0);
+        } catch (_) {}
+      }
 
       await _applyEffectiveVolume();
 
@@ -728,6 +860,12 @@ class AudioPlayerService {
         milliseconds: math.max(10, (milliseconds / steps).round()),
       );
 
+      /*
+       * En Android estas funciones devuelven únicamente _baseVolume.
+       *
+       * ReplayGain + Preamp permanecen en LoudnessEnhancer durante
+       * toda la transición.
+       */
       final oldVolume = _getEffectiveVolumeForSong(oldSong);
       final newVolume = _getEffectiveVolumeForSong(nextSong);
 
@@ -779,6 +917,12 @@ class AudioPlayerService {
         return;
       }
 
+      // Asegurar ReplayGain + Preamp de la nueva canción.
+
+      if (Platform.isAndroid) {
+        await _applyAndroidTrackGain();
+      }
+
       // REPRODUCIR
 
       await _player.play();
@@ -818,6 +962,10 @@ class AudioPlayerService {
         final index = currentIndex;
 
         if (index != null && index >= 0 && index < _songs.length) {
+          if (Platform.isAndroid) {
+            await _applyAndroidTrackGain();
+          }
+
           await _player.setVolume(_getEffectiveVolumeForSong(_songs[index]));
         }
 
@@ -842,6 +990,7 @@ class AudioPlayerService {
   }) async {
     if (songs.isEmpty) {
       await clear();
+
       return null;
     }
 
@@ -920,6 +1069,10 @@ class AudioPlayerService {
 
     _updateTrackGain(targetSong);
 
+    if (Platform.isAndroid) {
+      await _applyAndroidTrackGain();
+    }
+
     final newVolume = _getEffectiveVolumeForSong(targetSong);
 
     await _player.setVolume(newVolume);
@@ -951,6 +1104,7 @@ class AudioPlayerService {
   }) async {
     if (songs.isEmpty) {
       await clear();
+
       return;
     }
 
@@ -1274,6 +1428,7 @@ class AudioPlayerService {
 
     if (currentIndex == null) {
       await playAtIndex(0);
+
       return;
     }
 
@@ -1340,6 +1495,13 @@ class AudioPlayerService {
     }
 
     await _player.seek(position, index: index);
+
+    if (index != null &&
+        index >= 0 &&
+        index < _songs.length &&
+        Platform.isAndroid) {
+      await _applyAndroidTrackGain();
+    }
 
     if (_player.playing && _crossfadeService.enabled) {
       _startCrossfadeMonitor();
@@ -1466,6 +1628,12 @@ class AudioPlayerService {
 
     _currentTrackGainLinear = 1.0;
 
+    if (Platform.isAndroid && _androidLoudnessEnhancerReady) {
+      try {
+        await _loudnessEnhancer.setTargetGain(0.0);
+      } catch (_) {}
+    }
+
     if (!_isLinux) {
       try {
         await _player.setAudioSource(
@@ -1514,6 +1682,12 @@ class AudioPlayerService {
     await _durationSubscription?.cancel();
 
     await _currentIndexSubscription?.cancel();
+
+    if (Platform.isAndroid) {
+      try {
+        await _loudnessEnhancer.setEnabled(false);
+      } catch (_) {}
+    }
 
     replayGainPreampNotifier.dispose();
 
