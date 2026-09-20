@@ -1,4 +1,7 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/crossfade_service.dart';
 import '../../../app/locale_service.dart';
@@ -6,8 +9,7 @@ import '../../../app/sonara_app.dart';
 import '../../../app/theme_service.dart';
 import '../../../l10n/app_localizations.dart';
 import '../../../theme/app_theme.dart';
-
-import 'package:url_launcher/url_launcher.dart';
+import '../../player/data/services/audio_player_service.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
@@ -27,8 +29,10 @@ class _SettingsPageState extends State<SettingsPage> {
     switch (_themeMode) {
       case ThemeMode.light:
         return l10n.light;
+
       case ThemeMode.dark:
         return l10n.dark;
+
       case ThemeMode.system:
         return l10n.system;
     }
@@ -45,8 +49,10 @@ class _SettingsPageState extends State<SettingsPage> {
     switch (locale.languageCode) {
       case 'es':
         return 'Español';
+
       case 'en':
         return 'English';
+
       default:
         return l10n.system;
     }
@@ -58,18 +64,25 @@ class _SettingsPageState extends State<SettingsPage> {
     switch (colorTheme) {
       case 'sonara':
         return l10n.colorSonara;
+
       case 'violeta':
         return l10n.colorVioleta;
+
       case 'esmeralda':
         return l10n.colorEsmeralda;
+
       case 'naranja':
         return l10n.colorNaranja;
+
       case 'rojo':
         return l10n.colorRojo;
+
       case 'rosa':
         return l10n.colorRosa;
+
       case 'cian':
         return l10n.colorCian;
+
       default:
         return colorTheme;
     }
@@ -215,6 +228,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   shrinkWrap: true,
                   children: AppTheme.colorThemes.entries.map((entry) {
                     final colorTheme = entry.key;
+
                     final color = entry.value;
 
                     final name = _getColorThemeName(context, colorTheme);
@@ -334,16 +348,13 @@ class _SettingsPageState extends State<SettingsPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const SizedBox(height: 8),
-
                     Text(
                       currentSeconds == 0
                           ? l10n.disabled
                           : l10n.seconds(currentSeconds),
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
-
                     const SizedBox(height: 12),
-
                     Slider(
                       value: currentSeconds.toDouble(),
                       min: 0,
@@ -372,7 +383,6 @@ class _SettingsPageState extends State<SettingsPage> {
                         }
                       },
                     ),
-
                     const SizedBox(height: 8),
                   ],
                 ),
@@ -383,6 +393,91 @@ class _SettingsPageState extends State<SettingsPage> {
                     Navigator.of(dialogContext).pop();
                   },
                   child: Text(l10n.close),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+  }
+
+  // REPLAYGAIN PREAMP
+
+  void _showReplayGainPreampDialog() {
+    showDialog(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            final service = AudioPlayerService.instance;
+
+            double currentPreamp = service.replayGainPreampDb;
+
+            return AlertDialog(
+              title: const Text('ReplayGain Preamp'),
+              content: SizedBox(
+                width: 360,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const SizedBox(height: 8),
+
+                    Text(
+                      '${currentPreamp >= 0 ? '+' : ''}'
+                      '${currentPreamp.toStringAsFixed(1)} dB',
+                      style: Theme.of(context).textTheme.titleMedium,
+                    ),
+
+                    const SizedBox(height: 12),
+
+                    Slider(
+                      value: currentPreamp,
+                      min: -24,
+                      max: 24,
+                      divisions: 96,
+                      label:
+                          '${currentPreamp >= 0 ? '+' : ''}'
+                          '${currentPreamp.toStringAsFixed(1)} dB',
+                      onChanged: (value) {
+                        setDialogState(() {
+                          currentPreamp = value;
+                        });
+
+                        unawaited(
+                          service.setReplayGainPreampDb(value, persist: false),
+                        );
+                      },
+                      onChangeEnd: (value) {
+                        unawaited(
+                          service.setReplayGainPreampDb(value, persist: true),
+                        );
+                      },
+                    ),
+
+                    const SizedBox(height: 4),
+
+                    const Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [Text('-24 dB'), Text('0 dB'), Text('+24 dB')],
+                    ),
+
+                    const SizedBox(height: 8),
+
+                    Text(
+                      'Se suma al ReplayGain de cada canción.',
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.bodySmall,
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop();
+                  },
+                  child: Text(AppLocalizations.of(context)!.close),
                 ),
               ],
             );
@@ -410,7 +505,8 @@ class _SettingsPageState extends State<SettingsPage> {
               '• ${l10n.openSourceLicenses}: Licencia del Pdto\n'
               '• ${l10n.privacyPolicy}: Política del Pdto\n'
               '• ${l10n.support}: warycoe.dev@gmail.com\n\n'
-              '© 2026 Warycoe. ${l10n.allRightsReserved}',
+              '© 2026 Warycoe. '
+              '${l10n.allRightsReserved}',
             ),
           ),
           actions: [
@@ -490,6 +586,24 @@ class _SettingsPageState extends State<SettingsPage> {
                 ),
                 trailing: const Icon(Icons.chevron_right),
                 onTap: _showCrossfadeDialog,
+              );
+            },
+          ),
+
+          ValueListenableBuilder<double>(
+            valueListenable:
+                AudioPlayerService.instance.replayGainPreampNotifier,
+            builder: (context, preamp, child) {
+              final text =
+                  '${preamp >= 0 ? '+' : ''}'
+                  '${preamp.toStringAsFixed(1)} dB';
+
+              return ListTile(
+                leading: const Icon(Icons.equalizer_outlined),
+                title: const Text('ReplayGain Preamp'),
+                subtitle: Text(text),
+                trailing: const Icon(Icons.chevron_right),
+                onTap: _showReplayGainPreampDialog,
               );
             },
           ),

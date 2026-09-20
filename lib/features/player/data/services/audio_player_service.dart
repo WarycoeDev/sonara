@@ -5,6 +5,7 @@ import 'dart:math' as math;
 import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../app/crossfade_service.dart';
 import '../../../library/domain/models/song.dart';
@@ -16,6 +17,8 @@ class AudioPlayerService {
     _crossfadeService.secondsNotifier.addListener(
       _handleCrossfadeSettingChanged,
     );
+
+    unawaited(_loadReplayGainPreamp());
   }
 
   static final AudioPlayerService instance = AudioPlayerService._internal();
@@ -32,13 +35,8 @@ class AudioPlayerService {
 
   final List<Song> _songs = [];
 
-  // Android:
-  // Se utiliza ConcatenatingAudioSource normalmente.
   ConcatenatingAudioSource? _playlist;
 
-  // Linux:
-  // just_audio_media_kit no soporta ConcatenatingAudioSource.
-  // La cola se mantiene en _songs y solamente se carga la canción actual.
   int? _linuxCurrentIndex;
   bool _linuxLoading = false;
 
@@ -74,11 +72,26 @@ class AudioPlayerService {
 
   double _currentTrackGainLinear = 1.0;
 
-  static const double _replayGainPreamp = 1.0;
+  // ReplayGain puede producir valores superiores a +20 dB
+  // o inferiores a -20 dB.
+  //
+  // Estos límites solamente protegen contra valores absurdos
+  // o corruptos, pero permiten valores como +25 dB.
+  static const double _minimumGainDb = -60.0;
+  static const double _maximumGainDb = 60.0;
 
-  static const double _minimumGainDb = -20.0;
+  // Preamp configurable por el usuario.
+  static const double _minimumPreampDb = -24.0;
+  static const double _maximumPreampDb = 24.0;
 
-  static const double _maximumGainDb = 20.0;
+  static const String _replayGainPreampPreferenceKey =
+      'sonara_replaygain_preamp_db';
+
+  double _replayGainPreampDb = 0.0;
+
+  final ValueNotifier<double> replayGainPreampNotifier = ValueNotifier<double>(
+    0.0,
+  );
 
   bool _isApplyingVolume = false;
 
@@ -150,9 +163,76 @@ class AudioPlayerService {
 
   double get baseVolume => _baseVolume;
 
+  double get replayGainPreampDb => _replayGainPreampDb;
+
   int get crossfadeSeconds => _crossfadeService.seconds;
 
   bool get isCrossfading => _crossfadeInProgress;
+
+  // REPLAYGAIN PREAMP
+
+  Future<void> _loadReplayGainPreamp() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      final savedValue = prefs.getDouble(_replayGainPreampPreferenceKey);
+
+      if (savedValue == null) {
+        return;
+      }
+
+      final safeValue = savedValue
+          .clamp(_minimumPreampDb, _maximumPreampDb)
+          .toDouble();
+
+      _replayGainPreampDb = safeValue;
+      replayGainPreampNotifier.value = safeValue;
+
+      if (!_isDisposed) {
+        unawaited(_applyEffectiveVolume());
+      }
+    } catch (error) {
+      debugPrint(
+        '[SONARA REPLAYGAIN] '
+        'No se pudo cargar el Preamp: $error',
+      );
+    }
+  }
+
+  Future<void> setReplayGainPreampDb(
+    double value, {
+    bool persist = true,
+  }) async {
+    if (_isDisposed) {
+      return;
+    }
+
+    final safeValue = value
+        .clamp(_minimumPreampDb, _maximumPreampDb)
+        .toDouble();
+
+    _replayGainPreampDb = safeValue;
+
+    replayGainPreampNotifier.value = safeValue;
+
+    // El nuevo Preamp se aplica inmediatamente al volumen actual.
+    await _applyEffectiveVolume();
+
+    if (!persist) {
+      return;
+    }
+
+    try {
+      final prefs = await SharedPreferences.getInstance();
+
+      await prefs.setDouble(_replayGainPreampPreferenceKey, safeValue);
+    } catch (error) {
+      debugPrint(
+        '[SONARA REPLAYGAIN] '
+        'No se pudo guardar el Preamp: $error',
+      );
+    }
+  }
 
   // LISTENERS
 
@@ -165,12 +245,6 @@ class AudioPlayerService {
       if (!_playerStateController.isClosed) {
         _playerStateController.add(state);
       }
-
-      // -----------------------------------------------------------------------
-      // Linux no tiene ConcatenatingAudioSource.
-      //
-      // Por lo tanto, cuando termina una canción debemos avanzar manualmente.
-      // -----------------------------------------------------------------------
 
       if (_isLinux &&
           state.processingState == ProcessingState.completed &&
@@ -204,8 +278,6 @@ class AudioPlayerService {
         return;
       }
 
-      // En Linux just_audio solamente conoce el índice de su única
-      // AudioSource cargada. El índice real lo mantenemos nosotros.
       if (_isLinux) {
         return;
       }
@@ -231,19 +303,11 @@ class AudioPlayerService {
 
     final index = _linuxCurrentIndex ?? 0;
 
-    // ---------------------------------------------------------------------------
-    // REPETIR UNA
-    // ---------------------------------------------------------------------------
-
     if (_repeatMode == 1) {
       await _loadLinuxSong(index, position: Duration.zero, autoplay: true);
 
       return;
     }
-
-    // ---------------------------------------------------------------------------
-    // SHUFFLE
-    // ---------------------------------------------------------------------------
 
     if (_shuffleEnabled && _songs.length > 1) {
       final nextIndex = _getRandomIndexExcluding(index);
@@ -253,10 +317,6 @@ class AudioPlayerService {
       return;
     }
 
-    // ---------------------------------------------------------------------------
-    // SIGUIENTE
-    // ---------------------------------------------------------------------------
-
     final nextIndex = index + 1;
 
     if (nextIndex < _songs.length) {
@@ -264,10 +324,6 @@ class AudioPlayerService {
 
       return;
     }
-
-    // ---------------------------------------------------------------------------
-    // REPETIR TODA LA COLA
-    // ---------------------------------------------------------------------------
 
     if (_repeatMode == 2) {
       await _loadLinuxSong(0, position: Duration.zero, autoplay: true);
@@ -288,22 +344,23 @@ class AudioPlayerService {
     return AudioSource.uri(Uri.file(song.filePath), tag: mediaItem);
   }
 
-  // CARGAR CANCIÓN INDIVIDUAL EN LINUX
+  // LINUX
 
   Future<Duration?> _loadLinuxSong(
     int index, {
     Duration position = Duration.zero,
     bool autoplay = false,
   }) async {
-    if (!_isLinux || index < 0 || index >= _songs.length || _isDisposed) {
+    if (!Platform.isLinux ||
+        index < 0 ||
+        index >= _songs.length ||
+        _isDisposed) {
       return null;
     }
 
     final generation = ++_linuxLoadGeneration;
     final song = _songs[index];
 
-    // Si otra carga está ejecutándose, invalidamos la anterior.
-    // La nueva operación será la que tenga prioridad.
     if (_linuxLoading) {
       debugPrint(
         '[SONARA LINUX] '
@@ -322,8 +379,6 @@ class AudioPlayerService {
 
       final source = await _createAudioSource(song);
 
-      // La operación pudo haber sido reemplazada mientras
-      // se construía el AudioSource.
       if (generation != _linuxLoadGeneration || _isDisposed) {
         return null;
       }
@@ -336,8 +391,6 @@ class AudioPlayerService {
         preload: true,
       );
 
-      // setAudioSource puede haber provocado una nueva operación
-      // mientras terminaba.
       if (generation != _linuxLoadGeneration || _isDisposed) {
         return null;
       }
@@ -368,10 +421,6 @@ class AudioPlayerService {
 
       return result;
     } on PlayerInterruptedException catch (error) {
-      // Linux puede generar esta excepción cuando una carga es
-      // reemplazada por otra operación del reproductor.
-      //
-      // No debemos dejar que esta excepción pause/rompa la aplicación.
       debugPrint(
         '[SONARA LINUX] '
         'Carga interrumpida de ${song.title}: $error',
@@ -411,21 +460,26 @@ class AudioPlayerService {
     debugPrint(
       '[SONARA REPLAYGAIN] '
       '${song.title} | '
-      'Ganancia: ${safeGainDb.toStringAsFixed(2)} dB | '
-      'Factor: ${_currentTrackGainLinear.toStringAsFixed(3)}',
+      'ReplayGain: ${safeGainDb.toStringAsFixed(2)} dB | '
+      'Preamp: ${_replayGainPreampDb.toStringAsFixed(2)} dB | '
+      'Total: ${(safeGainDb + _replayGainPreampDb).toStringAsFixed(2)} dB | '
+      'Factor ReplayGain: '
+      '${_currentTrackGainLinear.toStringAsFixed(3)}',
     );
   }
 
-  double _getTrackGainLinear(Song song) {
+  double _getTrackGainDb(Song song) {
     final gainDb = song.volumeGain;
 
     if (gainDb == null || !gainDb.isFinite) {
-      return 1.0;
+      return 0.0;
     }
 
-    final safeGainDb = gainDb.clamp(_minimumGainDb, _maximumGainDb).toDouble();
+    return gainDb.clamp(_minimumGainDb, _maximumGainDb).toDouble();
+  }
 
-    return _dbToLinear(safeGainDb);
+  double _getTrackGainLinear(Song song) {
+    return _dbToLinear(_getTrackGainDb(song));
   }
 
   double _dbToLinear(double db) {
@@ -433,9 +487,39 @@ class AudioPlayerService {
   }
 
   double _getEffectiveVolumeForSong(Song song) {
-    final gain = _getTrackGainLinear(song);
+    final replayGainDb = _getTrackGainDb(song);
 
-    return (_baseVolume * _replayGainPreamp * gain).clamp(0.0, 1.0).toDouble();
+    // AQUÍ está la lógica correcta:
+    //
+    // ReplayGain + Preamp = ganancia total.
+    //
+    // Ejemplo:
+    // +25 dB + +5 dB = +30 dB
+    // +25 dB + -5 dB = +20 dB
+    // -25 dB + +5 dB = -20 dB
+
+    final totalGainDb = replayGainDb + _replayGainPreampDb;
+
+    final totalGainLinear = _dbToLinear(totalGainDb);
+
+    final effectiveVolume = _baseVolume * totalGainLinear;
+
+    debugPrint(
+      '[SONARA REPLAYGAIN] '
+      '${song.title} | '
+      'ReplayGain: ${replayGainDb.toStringAsFixed(2)} dB | '
+      'Preamp: ${_replayGainPreampDb.toStringAsFixed(2)} dB | '
+      'Total: ${totalGainDb.toStringAsFixed(2)} dB | '
+      'Linear: ${totalGainLinear.toStringAsFixed(4)} | '
+      'Base: ${_baseVolume.toStringAsFixed(3)} | '
+      'Volumen: ${effectiveVolume.toStringAsFixed(4)}',
+    );
+
+    // just_audio trabaja con volumen 0.0 - 1.0.
+    //
+    // Por eso, si el resultado matemático supera 1.0,
+    // el reproductor lo limita a 1.0.
+    return effectiveVolume.clamp(0.0, 1.0).toDouble();
   }
 
   // VOLUMEN
@@ -493,7 +577,7 @@ class AudioPlayerService {
     await _applyEffectiveVolume();
   }
 
-  // CROSSFADE - CONFIGURACIÓN
+  // CROSSFADE
 
   void _handleCrossfadeSettingChanged() {
     if (_isDisposed) {
@@ -535,8 +619,6 @@ class AudioPlayerService {
     _crossfadeMonitor?.cancel();
     _crossfadeMonitor = null;
   }
-
-  // CROSSFADE - COMPROBAR
 
   Future<void> _checkCrossfade() async {
     if (_isDisposed ||
@@ -580,8 +662,6 @@ class AudioPlayerService {
     }
   }
 
-  // SIGUIENTE ÍNDICE
-
   int? _getCrossfadeNextIndex() {
     final index = currentIndex;
 
@@ -612,8 +692,6 @@ class AudioPlayerService {
 
     return null;
   }
-
-  // CROSSFADE - EJECUTAR
 
   Future<void> _performCrossfade() async {
     if (_crossfadeInProgress || _isDisposed || !_crossfadeService.enabled) {
@@ -659,9 +737,7 @@ class AudioPlayerService {
         '(${duration.inSeconds}s)',
       );
 
-      // -----------------------------------------------------------------------
       // FADE OUT
-      // -----------------------------------------------------------------------
 
       for (var step = 0; step <= steps; step++) {
         if (generation != _crossfadeGeneration ||
@@ -687,13 +763,9 @@ class AudioPlayerService {
 
       await _player.setVolume(0.0);
 
-      // -----------------------------------------------------------------------
-      // CAMBIAR DE CANCIÓN
-      // -----------------------------------------------------------------------
+      // CAMBIAR CANCIÓN
 
       if (_isLinux) {
-        // Linux no tiene playlist interna.
-        // Cargamos directamente la siguiente AudioSource.
         await _loadLinuxSong(
           nextIndex,
           position: Duration.zero,
@@ -707,15 +779,11 @@ class AudioPlayerService {
         return;
       }
 
-      // -----------------------------------------------------------------------
-      // REPRODUCIR NUEVA CANCIÓN
-      // -----------------------------------------------------------------------
+      // REPRODUCIR
 
       await _player.play();
 
-      // -----------------------------------------------------------------------
       // FADE IN
-      // -----------------------------------------------------------------------
 
       for (var step = 0; step <= steps; step++) {
         if (generation != _crossfadeGeneration ||
@@ -785,10 +853,6 @@ class AudioPlayerService {
 
     final safeIndex = initialIndex.clamp(0, _songs.length - 1).toInt();
 
-    // -------------------------------------------------------------------------
-    // LINUX
-    // -------------------------------------------------------------------------
-
     if (_isLinux) {
       return _loadLinuxSong(
         safeIndex,
@@ -796,10 +860,6 @@ class AudioPlayerService {
         autoplay: false,
       );
     }
-
-    // -------------------------------------------------------------------------
-    // ANDROID / OTRAS PLATAFORMAS
-    // -------------------------------------------------------------------------
 
     final audioSources = <AudioSource>[];
 
@@ -825,8 +885,6 @@ class AudioPlayerService {
     return _waitForDuration();
   }
 
-  // REPRODUCIR COLA
-
   Future<Duration?> playQueue(
     List<Song> songs, {
     required int initialIndex,
@@ -837,8 +895,6 @@ class AudioPlayerService {
 
     return duration;
   }
-
-  // REPRODUCIR ÍNDICE
 
   Future<Duration?> playAtIndex(int index) async {
     if (_songs.isEmpty || index < 0 || index >= _songs.length) {
@@ -854,19 +910,9 @@ class AudioPlayerService {
       'Cambiando a índice $index: ${targetSong.title}',
     );
 
-    // -------------------------------------------------------------------------
-    // LINUX
-    // -------------------------------------------------------------------------
-
     if (_isLinux) {
       return _loadLinuxSong(index, position: Duration.zero, autoplay: true);
     }
-
-    // -------------------------------------------------------------------------
-    // ANDROID / OTRAS PLATAFORMAS
-    // -------------------------------------------------------------------------
-
-    final wasPlaying = _player.playing;
 
     await _player.setVolume(0.0);
 
@@ -882,10 +928,7 @@ class AudioPlayerService {
 
     final result = await _waitForDuration();
 
-    // playAtIndex representa una acción explícita de reproducción.
-    if (wasPlaying || !wasPlaying) {
-      await _player.play();
-    }
+    await _player.play();
 
     if (_crossfadeService.enabled) {
       _startCrossfadeMonitor();
@@ -940,13 +983,10 @@ class AudioPlayerService {
       return;
     }
 
-    // -------------------------------------------------------------------------
-    // LINUX
-    // -------------------------------------------------------------------------
-
     if (_isLinux) {
       if (_songs.isEmpty) {
         await setQueue([song], initialIndex: 0);
+
         return;
       }
 
@@ -956,10 +996,6 @@ class AudioPlayerService {
 
       return;
     }
-
-    // -------------------------------------------------------------------------
-    // ANDROID
-    // -------------------------------------------------------------------------
 
     if (_playlist == null) {
       await setQueue([song], initialIndex: 0);
@@ -989,10 +1025,6 @@ class AudioPlayerService {
       return;
     }
 
-    // -------------------------------------------------------------------------
-    // LINUX
-    // -------------------------------------------------------------------------
-
     if (_isLinux) {
       if (_songs.isEmpty) {
         await setQueue(newSongs, initialIndex: 0);
@@ -1006,10 +1038,6 @@ class AudioPlayerService {
 
       return;
     }
-
-    // -------------------------------------------------------------------------
-    // ANDROID
-    // -------------------------------------------------------------------------
 
     if (_playlist == null) {
       await setQueue(newSongs, initialIndex: 0);
@@ -1039,14 +1067,9 @@ class AudioPlayerService {
 
     final current = currentIndex;
 
-    // No eliminamos directamente la canción actual.
     if (index == current) {
       return;
     }
-
-    // -------------------------------------------------------------------------
-    // LINUX
-    // -------------------------------------------------------------------------
 
     if (_isLinux) {
       _songs.removeAt(index);
@@ -1059,10 +1082,6 @@ class AudioPlayerService {
 
       return;
     }
-
-    // -------------------------------------------------------------------------
-    // ANDROID
-    // -------------------------------------------------------------------------
 
     if (_playlist == null) {
       return;
@@ -1088,10 +1107,6 @@ class AudioPlayerService {
 
     final current = currentIndex;
 
-    // -------------------------------------------------------------------------
-    // LINUX
-    // -------------------------------------------------------------------------
-
     if (_isLinux) {
       final song = _songs.removeAt(oldIndex);
 
@@ -1111,10 +1126,6 @@ class AudioPlayerService {
 
       return;
     }
-
-    // -------------------------------------------------------------------------
-    // ANDROID
-    // -------------------------------------------------------------------------
 
     if (_playlist == null) {
       return;
@@ -1204,6 +1215,7 @@ class AudioPlayerService {
     if (position.inSeconds > 3) {
       await seek(Duration.zero);
       await play();
+
       return true;
     }
 
@@ -1313,8 +1325,6 @@ class AudioPlayerService {
   Future<void> seek(Duration position, {int? index}) async {
     _cancelTransition();
 
-    // Linux no puede hacer seek(index: ...) porque no existe
-    // una ConcatenatingAudioSource.
     if (_isLinux && index != null) {
       if (index < 0 || index >= _songs.length) {
         return;
@@ -1456,14 +1466,6 @@ class AudioPlayerService {
 
     _currentTrackGainLinear = 1.0;
 
-    // -------------------------------------------------------------------------
-    // IMPORTANTE:
-    //
-    // En Linux NO intentamos cargar una ConcatenatingAudioSource vacía,
-    // porque just_audio_media_kit tampoco soporta ese tipo de fuente.
-    // stop() es suficiente para dejar el reproductor sin reproducción.
-    // -------------------------------------------------------------------------
-
     if (!_isLinux) {
       try {
         await _player.setAudioSource(
@@ -1512,6 +1514,8 @@ class AudioPlayerService {
     await _durationSubscription?.cancel();
 
     await _currentIndexSubscription?.cancel();
+
+    replayGainPreampNotifier.dispose();
 
     await _player.dispose();
 
