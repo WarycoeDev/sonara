@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -183,8 +184,6 @@ class _PlayerHeader extends StatelessWidget {
         children: [
           IconButton(
             onPressed: () {
-              // Minimizar el reproductor.
-              // La cola NO se borra.
               Navigator.of(context, rootNavigator: true).pop();
             },
             icon: const Icon(Icons.keyboard_arrow_down),
@@ -195,8 +194,6 @@ class _PlayerHeader extends StatelessWidget {
             onPressed: () async {
               final controller = context.read<PlayerController>();
 
-              // Al cerrar explícitamente el reproductor,
-              // se elimina la canción actual y la cola.
               await controller.removeCurrentSong();
 
               await controller.clearQueue();
@@ -231,18 +228,16 @@ class _SongInformation extends StatelessWidget {
 
     final theme = Theme.of(context);
 
+    final titleHorizontalPadding = (30 * safeScale)
+        .clamp(18.0, 44.0)
+        .toDouble();
+
     return RepaintBoundary(
       child: Column(
         children: [
-          Text(
-            title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            textAlign: TextAlign.center,
-            style: TextStyle(
-              fontSize: (24 * safeScale).clamp(16.0, 32.0).toDouble(),
-              fontWeight: FontWeight.w600,
-            ),
+          Padding(
+            padding: EdgeInsets.symmetric(horizontal: titleHorizontalPadding),
+            child: _ScrollingSongTitle(title: title, safeScale: safeScale),
           ),
           if (hasArtist) ...[
             const SizedBox(height: 6),
@@ -259,6 +254,222 @@ class _SongInformation extends StatelessWidget {
           ],
         ],
       ),
+    );
+  }
+}
+
+class _ScrollingSongTitle extends StatefulWidget {
+  final String title;
+  final double safeScale;
+
+  const _ScrollingSongTitle({required this.title, required this.safeScale});
+
+  @override
+  State<_ScrollingSongTitle> createState() => _ScrollingSongTitleState();
+}
+
+class _ScrollingSongTitleState extends State<_ScrollingSongTitle> {
+  final ScrollController _scrollController = ScrollController();
+
+  double? _configuredDistance;
+  int _generation = 0;
+
+  static const double _gap = 48.0;
+  static const double _extraEndSpace = 8.0;
+
+  @override
+  void initState() {
+    super.initState();
+  }
+
+  @override
+  void didUpdateWidget(covariant _ScrollingSongTitle oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.title != widget.title ||
+        oldWidget.safeScale != widget.safeScale) {
+      _configuredDistance = null;
+      _generation++;
+
+      if (_scrollController.hasClients) {
+        _scrollController.jumpTo(0);
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _generation++;
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  TextStyle _titleStyle(BuildContext context) {
+    return TextStyle(
+      fontSize: (24 * widget.safeScale).clamp(16.0, 32.0).toDouble(),
+      fontWeight: FontWeight.w600,
+    );
+  }
+
+  double _measureTextWidth(BuildContext context, TextStyle style) {
+    final mediaQuery = MediaQuery.maybeOf(context);
+
+    final painter = TextPainter(
+      text: TextSpan(text: widget.title, style: style),
+      textDirection: Directionality.of(context),
+      textScaler: mediaQuery?.textScaler ?? TextScaler.noScaling,
+      maxLines: 1,
+    );
+
+    painter.layout();
+
+    return painter.width;
+  }
+
+  void _configureMarquee(double distance) {
+    if (_configuredDistance != null &&
+        (_configuredDistance! - distance).abs() < 0.5) {
+      return;
+    }
+
+    _configuredDistance = distance;
+
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) {
+        return;
+      }
+
+      if (!_scrollController.hasClients) {
+        return;
+      }
+
+      _scrollController.jumpTo(0);
+
+      _startMarquee(distance);
+    });
+  }
+
+  void _startMarquee(double distance) {
+    _generation++;
+
+    final generation = _generation;
+
+    unawaited(_runMarquee(distance, generation));
+  }
+
+  Future<void> _runMarquee(double distance, int generation) async {
+    await Future<void>.delayed(const Duration(milliseconds: 1200));
+
+    if (!mounted || generation != _generation) {
+      return;
+    }
+
+    if (!_scrollController.hasClients) {
+      return;
+    }
+
+    try {
+      await _scrollController.animateTo(
+        distance,
+        duration: Duration(
+          milliseconds: ((distance / 45.0) * 1000).round().clamp(2200, 15000),
+        ),
+        curve: Curves.linear,
+      );
+    } catch (_) {
+      return;
+    }
+
+    if (!mounted || generation != _generation) {
+      return;
+    }
+
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+
+    if (!mounted || generation != _generation) {
+      return;
+    }
+
+    if (!_scrollController.hasClients) {
+      return;
+    }
+
+    // El contenido está duplicado. Al llegar aquí, la segunda copia
+    // ocupa exactamente la posición visual de la primera, por lo que
+    // volver a 0 no produce un salto visible.
+    _scrollController.jumpTo(0);
+
+    if (!mounted || generation != _generation) {
+      return;
+    }
+
+    unawaited(_runMarquee(distance, generation));
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final style = _titleStyle(context);
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth;
+
+        final textWidth = _measureTextWidth(context, style);
+
+        final shouldScroll = textWidth > availableWidth + 0.5;
+
+        if (!shouldScroll) {
+          return SizedBox(
+            width: double.infinity,
+            child: Text(
+              widget.title,
+              maxLines: 1,
+              softWrap: false,
+              overflow: TextOverflow.clip,
+              textAlign: TextAlign.center,
+              style: style,
+            ),
+          );
+        }
+
+        // Se agregan 8 px adicionales al recorrido para que la última
+        // letra tenga espacio suficiente y nunca quede cortada.
+        final distance =
+            textWidth +
+            (_gap * widget.safeScale) +
+            (_extraEndSpace * widget.safeScale);
+
+        _configureMarquee(distance);
+
+        return ClipRect(
+          child: SizedBox(
+            width: double.infinity,
+            child: SingleChildScrollView(
+              controller: _scrollController,
+              scrollDirection: Axis.horizontal,
+              physics: const NeverScrollableScrollPhysics(),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(
+                    widget.title,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: style,
+                  ),
+                  SizedBox(width: _gap * widget.safeScale),
+                  Text(
+                    widget.title,
+                    maxLines: 1,
+                    softWrap: false,
+                    style: style,
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -725,41 +936,30 @@ class _QueueItem extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
 
     return Dismissible(
-      // La identidad depende únicamente de la canción.
-      // No debe depender del índice porque este cambia al eliminar
-      // elementos de la cola.
       key: ValueKey('queue_${song.id}'),
-
       direction: DismissDirection.horizontal,
-
       dismissThresholds: const {
         DismissDirection.startToEnd: 0.35,
         DismissDirection.endToStart: 0.35,
       },
-
       background: Container(
         alignment: Alignment.centerLeft,
         padding: const EdgeInsets.symmetric(horizontal: 20),
         color: colorScheme.error,
         child: Icon(Icons.remove_circle_outline, color: colorScheme.onError),
       ),
-
       secondaryBackground: Container(
         alignment: Alignment.centerRight,
         padding: const EdgeInsets.symmetric(horizontal: 20),
         color: colorScheme.error,
         child: Icon(Icons.remove_circle_outline, color: colorScheme.onError),
       ),
-
       confirmDismiss: (_) async {
-        // La canción actual no puede eliminarse deslizando.
         return !isCurrent;
       },
-
       onDismissed: (_) {
         controller.removeFromQueue(song);
       },
-
       child: ListTile(
         leading: _QueueArtwork(
           coverPath: song.coverPath,
@@ -767,7 +967,6 @@ class _QueueItem extends StatelessWidget {
           size: 40,
           borderRadius: 6,
         ),
-
         title: Text(
           song.title,
           maxLines: 1,
@@ -779,11 +978,9 @@ class _QueueItem extends StatelessWidget {
                 )
               : null,
         ),
-
         subtitle: song.artist != null && song.artist!.isNotEmpty
             ? Text(song.artist!, maxLines: 1, overflow: TextOverflow.ellipsis)
             : null,
-
         trailing: ReorderableDragStartListener(
           index: index,
           child: const Padding(
@@ -791,7 +988,6 @@ class _QueueItem extends StatelessWidget {
             child: Icon(Icons.drag_handle),
           ),
         ),
-
         onTap: () async {
           final queue = List<Song>.from(controller.queue);
 
