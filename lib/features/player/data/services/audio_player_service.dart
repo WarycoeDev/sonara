@@ -20,9 +20,7 @@ class AudioPlayerService {
 
     _listenToPlayer();
 
-    _crossfadeService.secondsNotifier.addListener(
-      _handleCrossfadeSettingChanged,
-    );
+    _crossfadeService.secondsNotifier.addListener(_handleFadeSettingChanged);
 
     unawaited(_loadReplayGainPreamp());
 
@@ -83,15 +81,9 @@ class AudioPlayerService {
 
   double _currentTrackGainLinear = 1.0;
 
-  // ReplayGain puede producir valores superiores a +20 dB
-  // o inferiores a -20 dB.
-  //
-  // Estos límites protegen contra valores absurdos/corruptos
-  // pero permiten valores como +25 dB.
   static const double _minimumGainDb = -60.0;
   static const double _maximumGainDb = 60.0;
 
-  // Preamp configurable por el usuario.
   static const double _minimumPreampDb = -24.0;
   static const double _maximumPreampDb = 24.0;
 
@@ -110,17 +102,13 @@ class AudioPlayerService {
 
   bool _androidLoudnessEnhancerReady = false;
 
-  // CROSSFADE
+  // FADE IN / FADE OUT
 
   final CrossfadeService _crossfadeService = CrossfadeService.instance;
 
-  Timer? _crossfadeMonitor;
+  Timer? _fadeMonitor;
 
-  bool _crossfadeInProgress = false;
-
-  int _crossfadeGeneration = 0;
-
-  bool _crossfadeCheckInProgress = false;
+  bool _fadeUpdateInProgress = false;
 
   // ESTADO
 
@@ -180,7 +168,7 @@ class AudioPlayerService {
 
   int get crossfadeSeconds => _crossfadeService.seconds;
 
-  bool get isCrossfading => _crossfadeInProgress;
+  bool get isCrossfading => _crossfadeService.enabled;
 
   // ANDROID LOUDNESS ENHANCER
 
@@ -293,7 +281,6 @@ class AudioPlayerService {
 
     replayGainPreampNotifier.value = safeValue;
 
-    // El nuevo Preamp se aplica inmediatamente.
     await _applyEffectiveVolume();
 
     if (!persist) {
@@ -324,10 +311,28 @@ class AudioPlayerService {
         _playerStateController.add(state);
       }
 
-      if (_isLinux &&
-          state.processingState == ProcessingState.completed &&
-          !_crossfadeInProgress) {
-        unawaited(_handleLinuxTrackCompleted());
+      /*
+       * IMPORTANTE (FIX):
+       *
+       * Antes este manejador de "fin de pista" solo se ejecutaba en
+       * Linux. En el resto de plataformas no existía NINGÚN código
+       * que reaccionara a que una canción terminara, así que el modo
+       * "Repetir" simplemente no tenía nada que lo disparara.
+       *
+       * Ahora se ejecuta en TODAS las plataformas, y como el Fade
+       * In / Fade Out se calcula a partir de la posición de la
+       * canción actual (no de la lista completa), queda garantizado
+       * que la transición de volumen se aplique canción por canción,
+       * tanto al inicio como al final, sin importar la plataforma.
+       */
+      if (state.processingState == ProcessingState.completed) {
+        unawaited(_handleTrackCompleted());
+      }
+
+      if (state.playing) {
+        _startFadeMonitor();
+      } else {
+        _stopFadeMonitor();
       }
     });
 
@@ -365,24 +370,57 @@ class AudioPlayerService {
       }
 
       if (index != null && index >= 0 && index < _songs.length) {
-        _updateTrackGain(_songs[index]);
+        final song = _songs[index];
 
-        if (!_crossfadeInProgress) {
-          unawaited(_applyEffectiveVolume());
-        }
+        _updateTrackGain(song);
+
+        /*
+         * MUY IMPORTANTE:
+         *
+         * Cuando just_audio cambia automáticamente a la siguiente
+         * canción, su posición vuelve a 0.
+         *
+         * Por lo tanto, este cálculo produce automáticamente el
+         * comienzo del Fade In de la nueva canción.
+         */
+        unawaited(_applyEffectiveVolume());
       }
     });
   }
 
-  Future<void> _handleLinuxTrackCompleted() async {
-    if (_isDisposed || !_isLinux || _songs.isEmpty || _linuxLoading) {
+  /*
+   * FIN DE PISTA (TODAS LAS PLATAFORMAS)
+   *
+   * Se dispara cuando el reproductor llega de forma natural al final
+   * de lo que tenía cargado (una sola canción, o el final de toda la
+   * lista continua). A partir de aquí decidimos, canción por canción,
+   * qué sigue según Repetir / Aleatorio, reutilizando exactamente el
+   * mismo camino (playAtIndex) que usa el usuario al tocar "siguiente"
+   * o "anterior" manualmente, así el Fade se aplica siempre igual.
+   */
+  Future<void> _handleTrackCompleted() async {
+    if (_isDisposed || _songs.isEmpty) {
       return;
     }
 
-    final index = _linuxCurrentIndex ?? 0;
+    if (_isLinux && _linuxLoading) {
+      return;
+    }
+
+    final index = currentIndex ?? 0;
 
     if (_repeatMode == 1) {
-      await _loadLinuxSong(index, position: Duration.zero, autoplay: true);
+      /*
+       * Modo "Repetir una".
+       *
+       * En condiciones normales, LoopMode.one del propio reproductor
+       * (ver _syncNativeLoopMode) ya repite la pista de forma nativa
+       * e instantánea, sin volver a abrir el archivo, así que este
+       * evento normalmente ni siquiera debería dispararse en este
+       * modo. Esta rama queda como respaldo por si la plataforma no
+       * soporta LoopMode.one.
+       */
+      await playAtIndex(index);
 
       return;
     }
@@ -390,7 +428,7 @@ class AudioPlayerService {
     if (_shuffleEnabled && _songs.length > 1) {
       final nextIndex = _getRandomIndexExcluding(index);
 
-      await _loadLinuxSong(nextIndex, position: Duration.zero, autoplay: true);
+      await playAtIndex(nextIndex);
 
       return;
     }
@@ -398,13 +436,13 @@ class AudioPlayerService {
     final nextIndex = index + 1;
 
     if (nextIndex < _songs.length) {
-      await _loadLinuxSong(nextIndex, position: Duration.zero, autoplay: true);
+      await playAtIndex(nextIndex);
 
       return;
     }
 
     if (_repeatMode == 2) {
-      await _loadLinuxSong(0, position: Duration.zero, autoplay: true);
+      await playAtIndex(0);
     }
   }
 
@@ -439,14 +477,6 @@ class AudioPlayerService {
     final generation = ++_linuxLoadGeneration;
     final song = _songs[index];
 
-    if (_linuxLoading) {
-      debugPrint(
-        '[SONARA LINUX] '
-        'Nueva carga solicitada mientras otra estaba en progreso: '
-        '${song.title}',
-      );
-    }
-
     _linuxLoading = true;
 
     try {
@@ -473,8 +503,23 @@ class AudioPlayerService {
         return null;
       }
 
+      // Mantiene sincronizado el LoopMode nativo con el nuevo audio
+      // source recién cargado (ver _syncNativeLoopMode).
+      unawaited(_syncNativeLoopMode());
+
       _updateTrackGain(song);
 
+      /*
+       * Aquí el volumen se calcula usando `position`.
+       *
+       * Si position == 0 y el Fade In está activo:
+       *
+       *     fadeFactor = 0
+       *
+       * Si position == 2 y la transición dura 4:
+       *
+       *     fadeFactor = 0.5
+       */
       await _applyEffectiveVolume();
 
       if (generation != _linuxLoadGeneration || _isDisposed) {
@@ -491,10 +536,6 @@ class AudioPlayerService {
 
       if (autoplay) {
         await _player.play();
-
-        if (_crossfadeService.enabled) {
-          _startCrossfadeMonitor();
-        }
       }
 
       return result;
@@ -576,23 +617,6 @@ class AudioPlayerService {
     final replayGainDb = _getTrackGainDb(song);
     final totalGainDb = _getTotalGainDb(song);
 
-    /*
-     * ANDROID
-     *
-     * ReplayGain + Preamp NO se convierte a volumen 0.0 - 1.0.
-     *
-     * La ganancia se aplica mediante AndroidLoudnessEnhancer.
-     * De esta forma:
-     *
-     * +25 dB + +5 dB = +30 dB
-     *
-     * y no:
-     *
-     * 31.62 * baseVolume -> clamp(1.0)
-     *
-     * En Android setVolume() queda únicamente para el volumen
-     * normal del reproductor.
-     */
     if (Platform.isAndroid) {
       debugPrint(
         '[SONARA REPLAYGAIN ANDROID] '
@@ -606,15 +630,6 @@ class AudioPlayerService {
       return _baseVolume;
     }
 
-    /*
-     * LINUX / OTRAS PLATAFORMAS
-     *
-     * Se conserva el comportamiento anterior.
-     *
-     * Aquí just_audio solamente acepta el volumen normal 0.0 - 1.0,
-     * por lo que una ganancia positiva suficientemente grande termina
-     * limitada a 1.0.
-     */
     final totalGainLinear = _dbToLinear(totalGainDb);
 
     final effectiveVolume = _baseVolume * totalGainLinear;
@@ -633,14 +648,167 @@ class AudioPlayerService {
     return effectiveVolume.clamp(0.0, 1.0).toDouble();
   }
 
+  // FADE IN / FADE OUT
+
+  /*
+   * Devuelve un factor entre 0.0 y 1.0.
+   *
+   * Este valor es calculado DIRECTAMENTE a partir de la posición
+   * actual de reproducción.
+   *
+   * No existe un "progreso interno" que pueda desincronizarse
+   * después de un seek.
+   */
+  double _getFadeFactor() {
+    if (!_crossfadeService.enabled) {
+      return 1.0;
+    }
+
+    final fadeDuration = _crossfadeService.duration;
+
+    if (fadeDuration <= Duration.zero) {
+      return 1.0;
+    }
+
+    final currentPosition = _player.position;
+    final currentDuration = _player.duration;
+
+    if (currentPosition < Duration.zero) {
+      return 1.0;
+    }
+
+    /*
+     * Si todavía no conocemos la duración no podemos calcular
+     * el Fade Out.
+     *
+     * Pero sí podemos calcular el Fade In.
+     */
+    if (currentDuration == null || currentDuration <= Duration.zero) {
+      if (currentPosition >= fadeDuration) {
+        return 1.0;
+      }
+
+      return _linearProgress(currentPosition, fadeDuration);
+    }
+
+    /*
+     * Para canciones suficientemente largas:
+     *
+     * 0s -------------------- final-fade ---------------- final
+     * |                           |                         |
+     * |       volumen normal      |       FADE OUT          |
+     *
+     * Y al principio:
+     *
+     * 0 ---------------- fadeDuration
+     * |                        |
+     * FADE IN                   normal
+     */
+    var effectiveFadeDuration = fadeDuration;
+
+    /*
+     * Si la canción es demasiado corta para tener un Fade In
+     * y un Fade Out completos sin solaparlos, dividimos la canción
+     * en dos mitades.
+     *
+     * Esto evita comportamientos imposibles como intentar hacer
+     * Fade In y Fade Out al mismo tiempo con un solo reproductor.
+     */
+    final halfDuration = Duration(
+      microseconds: currentDuration.inMicroseconds ~/ 2,
+    );
+
+    if (effectiveFadeDuration > halfDuration) {
+      effectiveFadeDuration = halfDuration;
+    }
+
+    if (effectiveFadeDuration <= Duration.zero) {
+      return 1.0;
+    }
+
+    /*
+     * FADE IN
+     *
+     * Posición:
+     *
+     * 0s      -> 0%
+     * 1s      -> 25% si T = 4
+     * 2s      -> 50%
+     * 3s      -> 75%
+     * 4s      -> 100%
+     */
+    if (currentPosition < effectiveFadeDuration) {
+      final progress = _linearProgress(currentPosition, effectiveFadeDuration);
+
+      debugPrint(
+        '[SONARA FADE IN] '
+        'Posición: '
+        '${_formatDuration(currentPosition)} | '
+        'Duración: '
+        '${_formatDuration(effectiveFadeDuration)} | '
+        'Progreso: ${(progress * 100).toStringAsFixed(1)}% | '
+        'Factor: ${progress.toStringAsFixed(3)}',
+      );
+
+      return progress.clamp(0.0, 1.0);
+    }
+
+    /*
+     * FADE OUT
+     *
+     * Calculamos cuánto falta realmente.
+     *
+     * Si T = 4:
+     *
+     * quedan 4s -> 100%
+     * quedan 3s -> 75%
+     * quedan 2s -> 50%
+     * quedan 1s -> 25%
+     * quedan 0s -> 0%
+     */
+    final remaining = currentDuration - currentPosition;
+
+    if (remaining <= effectiveFadeDuration) {
+      final progress = _linearProgress(remaining, effectiveFadeDuration);
+
+      debugPrint(
+        '[SONARA FADE OUT] '
+        'Restante: '
+        '${_formatDuration(remaining)} | '
+        'Duración: '
+        '${_formatDuration(effectiveFadeDuration)} | '
+        'Volumen: ${(progress * 100).toStringAsFixed(1)}% | '
+        'Factor: ${progress.toStringAsFixed(3)}',
+      );
+
+      return progress.clamp(0.0, 1.0);
+    }
+
+    return 1.0;
+  }
+
+  double _linearProgress(Duration elapsed, Duration total) {
+    if (total <= Duration.zero) {
+      return 1.0;
+    }
+
+    final progress = elapsed.inMicroseconds / total.inMicroseconds;
+
+    return progress.clamp(0.0, 1.0).toDouble();
+  }
+
+  String _formatDuration(Duration value) {
+    final milliseconds = value.inMilliseconds;
+
+    final seconds = milliseconds / 1000.0;
+
+    return '${seconds.toStringAsFixed(2)}s';
+  }
+
   // VOLUMEN
 
   Future<void> _applyEffectiveVolume() async {
     if (_isDisposed) {
-      return;
-    }
-
-    if (_crossfadeInProgress) {
       return;
     }
 
@@ -664,366 +832,153 @@ class AudioPlayerService {
         }
 
         /*
-         * Android:
-         *
-         * 1. AndroidLoudnessEnhancer recibe ReplayGain + Preamp.
-         * 2. setVolume recibe solamente el volumen base.
-         *
-         * Linux:
-         *
-         * setVolume recibe ReplayGain + Preamp convertido a lineal
-         * y limitado a 1.0.
+         * ReplayGain + Preamp se mantienen independientes
+         * del Fade.
          */
         if (Platform.isAndroid) {
           await _applyAndroidTrackGain();
         }
 
-        final effectiveVolume = currentSong == null
+        final normalVolume = currentSong == null
             ? _baseVolume
             : _getEffectiveVolumeForSong(currentSong);
 
-        await _player.setVolume(effectiveVolume);
+        /*
+         * Aquí está la nueva arquitectura:
+         *
+         *     volumen normal × factor del Fade
+         *
+         * Ejemplo:
+         *
+         * volumen normal = 0.8
+         * fade factor    = 0.50
+         *
+         * volumen final  = 0.4
+         */
+        final fadeFactor = _getFadeFactor();
+
+        final effectiveVolume = normalVolume * fadeFactor;
+
+        debugPrint(
+          '[SONARA FADE VOLUME] '
+          'Normal: ${normalVolume.toStringAsFixed(4)} | '
+          'Factor: ${fadeFactor.toStringAsFixed(4)} | '
+          'Final: ${effectiveVolume.toStringAsFixed(4)}',
+        );
+
+        await _player.setVolume(effectiveVolume.clamp(0.0, 1.0).toDouble());
       } while (_volumeUpdatePending);
     } finally {
       _isApplyingVolume = false;
     }
   }
 
-  Future<void> _setTrackGainForIndex(int index) async {
-    if (index < 0 || index >= _songs.length) {
-      _currentTrackGainLinear = 1.0;
+  // FADE MONITOR
 
-      if (Platform.isAndroid && _androidLoudnessEnhancerReady) {
-        try {
-          await _loudnessEnhancer.setTargetGain(0.0);
-        } catch (_) {}
-      }
-
-      await _applyEffectiveVolume();
-
+  void _startFadeMonitor() {
+    if (_isDisposed || !_crossfadeService.enabled || _fadeMonitor != null) {
       return;
     }
 
-    _updateTrackGain(_songs[index]);
-
-    await _applyEffectiveVolume();
+    /*
+     * El Timer NO controla el progreso del Fade.
+     *
+     * Solamente vuelve a preguntar:
+     *
+     * "¿Dónde está ahora mismo la canción?"
+     *
+     * y _getFadeFactor() calcula el volumen correspondiente.
+     *
+     * Esto es lo que garantiza que, incluso cuando el propio
+     * reproductor repite una pista de forma nativa (LoopMode.one) y
+     * la posición vuelve a 0 sin que se dispare ningún evento
+     * especial, el Fade In se recalcule solo, canción por canción.
+     */
+    _fadeMonitor = Timer.periodic(const Duration(milliseconds: 50), (_) {
+      unawaited(_updateFadeVolume());
+    });
   }
 
-  // CROSSFADE
+  void _stopFadeMonitor() {
+    _fadeMonitor?.cancel();
+    _fadeMonitor = null;
+  }
 
-  void _handleCrossfadeSettingChanged() {
+  Future<void> _updateFadeVolume() async {
+    if (_isDisposed ||
+        !_crossfadeService.enabled ||
+        !_player.playing ||
+        _fadeUpdateInProgress) {
+      return;
+    }
+
+    _fadeUpdateInProgress = true;
+
+    try {
+      await _applyEffectiveVolume();
+    } finally {
+      _fadeUpdateInProgress = false;
+    }
+  }
+
+  void _handleFadeSettingChanged() {
     if (_isDisposed) {
       return;
     }
 
+    /*
+     * No reiniciamos ningún progreso.
+     *
+     * Simplemente recalculamos el volumen utilizando:
+     *
+     *     posición actual + nueva duración
+     */
     if (!_crossfadeService.enabled) {
-      _stopCrossfadeMonitor();
+      _stopFadeMonitor();
 
-      if (_crossfadeInProgress) {
-        _crossfadeGeneration++;
-        _crossfadeInProgress = false;
-        _crossfadeCheckInProgress = false;
-
-        unawaited(_applyEffectiveVolume());
-      }
+      unawaited(_applyEffectiveVolume());
 
       return;
     }
+
+    unawaited(_applyEffectiveVolume());
 
     if (_player.playing) {
-      _startCrossfadeMonitor();
+      _startFadeMonitor();
     }
   }
 
-  void _startCrossfadeMonitor() {
-    if (_isDisposed ||
-        _crossfadeMonitor != null ||
-        !_crossfadeService.enabled) {
+  // MODO NATIVO DE BUCLE
+
+  /*
+   * Sincroniza el LoopMode nativo del reproductor con el modo
+   * "Repetir" elegido por el usuario.
+   *
+   * Se usa ÚNICAMENTE para "Repetir una" (LoopMode.one): así la
+   * propia pista se repite de forma instantánea y sin cortes, sin
+   * necesidad de volver a abrir el archivo ni esperar el evento de
+   * finalización, que es justo lo que provocaba que el bucle
+   * "se tardara demasiado" o, en algunas plataformas, ni siquiera
+   * llegara a repetirse.
+   *
+   * "Repetir toda la lista" y el modo aleatorio se resuelven en
+   * _handleTrackCompleted, porque ahí sí hace falta decidir CUÁL es
+   * la siguiente canción (la primera de la lista, o una al azar).
+   */
+  Future<void> _syncNativeLoopMode() async {
+    if (_isDisposed) {
       return;
     }
 
-    _crossfadeMonitor = Timer.periodic(const Duration(milliseconds: 100), (_) {
-      unawaited(_checkCrossfade());
-    });
-  }
-
-  void _stopCrossfadeMonitor() {
-    _crossfadeMonitor?.cancel();
-    _crossfadeMonitor = null;
-  }
-
-  Future<void> _checkCrossfade() async {
-    if (_isDisposed ||
-        !_crossfadeService.enabled ||
-        !_player.playing ||
-        _crossfadeInProgress ||
-        _crossfadeCheckInProgress) {
-      return;
-    }
-
-    final currentIndex = this.currentIndex;
-
-    if (currentIndex == null ||
-        currentIndex < 0 ||
-        currentIndex >= _songs.length) {
-      return;
-    }
-
-    final currentDuration = _player.duration;
-
-    if (currentDuration == null || currentDuration <= Duration.zero) {
-      return;
-    }
-
-    final remaining = currentDuration - _player.position;
-
-    final fadeDuration = _crossfadeService.duration;
-
-    if (fadeDuration <= Duration.zero) {
-      return;
-    }
-
-    if (remaining <= fadeDuration) {
-      _crossfadeCheckInProgress = true;
-
-      try {
-        await _performCrossfade();
-      } finally {
-        _crossfadeCheckInProgress = false;
-      }
-    }
-  }
-
-  int? _getCrossfadeNextIndex() {
-    final index = currentIndex;
-
-    if (_songs.isEmpty ||
-        index == null ||
-        index < 0 ||
-        index >= _songs.length) {
-      return null;
-    }
-
-    if (_repeatMode == 1) {
-      return index;
-    }
-
-    if (_shuffleEnabled && _songs.length > 1) {
-      return _getRandomIndexExcluding(index);
-    }
-
-    final nextIndex = index + 1;
-
-    if (nextIndex < _songs.length) {
-      return nextIndex;
-    }
-
-    if (_repeatMode == 2) {
-      return 0;
-    }
-
-    return null;
-  }
-
-  Future<void> _performCrossfade() async {
-    if (_crossfadeInProgress || _isDisposed || !_crossfadeService.enabled) {
-      return;
-    }
-
-    final nextIndex = _getCrossfadeNextIndex();
-
-    if (nextIndex == null) {
-      return;
-    }
-
-    final oldIndex = currentIndex;
-
-    if (oldIndex == null || oldIndex < 0 || oldIndex >= _songs.length) {
-      return;
-    }
-
-    _crossfadeInProgress = true;
-
-    final generation = ++_crossfadeGeneration;
-
-    final oldSong = _songs[oldIndex];
-    final nextSong = _songs[nextIndex];
+    final mode = _repeatMode == 1 ? LoopMode.one : LoopMode.off;
 
     try {
-      final configuredDuration = _crossfadeService.duration;
-
-      /*
-       * TIEMPO REAL RESTANTE
-       *
-       * Si el usuario hizo seek cerca del final (dentro del margen del
-       * crossfade), el tiempo real que queda puede ser mucho menor que
-       * la duración configurada.
-       *
-       * Si usáramos siempre `configuredDuration`, el
-       * ConcatenatingAudioSource llegaría solo al final de la canción
-       * actual (avance natural/gapless) mucho antes de que termine
-       * nuestra animación manual. Eso provoca el salto reportado:
-       * la siguiente canción arranca sola a volumen normal y luego
-       * nuestro código la reinicia a 0:00.
-       *
-       * Por eso el fade se limita al tiempo real disponible.
-       */
-      const safetyMargin = Duration(milliseconds: 150);
-      const minimumFade = Duration(milliseconds: 100);
-
-      var effectiveDuration = configuredDuration;
-
-      final currentTrackDuration = _player.duration;
-
-      if (currentTrackDuration != null &&
-          currentTrackDuration > Duration.zero) {
-        final realRemaining = currentTrackDuration - _player.position;
-
-        if (realRemaining < effectiveDuration) {
-          effectiveDuration = realRemaining - safetyMargin;
-        }
-      }
-
-      if (effectiveDuration < minimumFade) {
-        effectiveDuration = minimumFade;
-      }
-
-      final milliseconds = math.max(100, effectiveDuration.inMilliseconds);
-
-      final steps = math.max(2, (milliseconds / 50).round());
-
-      final stepDuration = Duration(
-        milliseconds: math.max(10, (milliseconds / steps).round()),
-      );
-
-      final oldVolume = _getEffectiveVolumeForSong(oldSong);
-      final newVolume = _getEffectiveVolumeForSong(nextSong);
-
+      await _player.setLoopMode(mode);
+    } catch (error) {
       debugPrint(
-        '[SONARA CROSSFADE] '
-        '${oldSong.title} -> ${nextSong.title} '
-        '(configurado: ${configuredDuration.inSeconds}s, '
-        'efectivo: ${(milliseconds / 1000).toStringAsFixed(2)}s)',
+        '[SONARA PLAYER] '
+        'No se pudo aplicar LoopMode: $error',
       );
-
-      // FADE OUT
-
-      for (var step = 0; step <= steps; step++) {
-        if (generation != _crossfadeGeneration ||
-            _isDisposed ||
-            !_crossfadeService.enabled) {
-          return;
-        }
-
-        // Si el reproductor ya avanzó solo a la siguiente canción
-        // (avance natural/gapless porque quedaba menos tiempo del
-        // esperado), dejamos de tocar el volumen: ya no corresponde
-        // a la canción que se estaba desvaneciendo.
-        if (!_isLinux && _player.currentIndex != oldIndex) {
-          break;
-        }
-
-        final progress = step / steps;
-
-        final volume = oldVolume * (1.0 - progress);
-
-        await _player.setVolume(volume.clamp(0.0, 1.0).toDouble());
-
-        if (step < steps) {
-          await Future<void>.delayed(stepDuration);
-        }
-      }
-
-      if (generation != _crossfadeGeneration || _isDisposed) {
-        return;
-      }
-
-      await _player.setVolume(0.0);
-
-      // CAMBIAR CANCIÓN
-
-      if (_isLinux) {
-        await _loadLinuxSong(
-          nextIndex,
-          position: Duration.zero,
-          autoplay: false,
-        );
-      } else if (_player.currentIndex != nextIndex) {
-        // Solo forzamos el seek si el reproductor todavía NO llegó
-        // por su cuenta a la siguiente pista. Si ya avanzó de forma
-        // natural, reiniciarlo a 0 es justo el bug que causaba el
-        // salto de vuelta al inicio.
-        await _player.seek(Duration.zero, index: nextIndex);
-      }
-
-      if (generation != _crossfadeGeneration || _isDisposed) {
-        return;
-      }
-
-      // Asegurar ReplayGain + Preamp de la nueva canción.
-
-      if (Platform.isAndroid) {
-        await _applyAndroidTrackGain();
-      }
-
-      // REPRODUCIR
-
-      if (!_player.playing) {
-        await _player.play();
-      }
-
-      // FADE IN
-
-      for (var step = 0; step <= steps; step++) {
-        if (generation != _crossfadeGeneration ||
-            _isDisposed ||
-            !_crossfadeService.enabled) {
-          return;
-        }
-
-        final progress = step / steps;
-
-        final volume = newVolume * progress;
-
-        await _player.setVolume(volume.clamp(0.0, 1.0).toDouble());
-
-        if (step < steps) {
-          await Future<void>.delayed(stepDuration);
-        }
-      }
-
-      await _player.setVolume(newVolume);
-
-      debugPrint(
-        '[SONARA CROSSFADE] '
-        'Transición completada -> ${nextSong.title}',
-      );
-    } catch (error, stackTrace) {
-      debugPrint('[SONARA CROSSFADE ERROR] $error');
-
-      debugPrintStack(stackTrace: stackTrace);
-
-      try {
-        final index = currentIndex;
-
-        if (index != null && index >= 0 && index < _songs.length) {
-          if (Platform.isAndroid) {
-            await _applyAndroidTrackGain();
-          }
-
-          await _player.setVolume(_getEffectiveVolumeForSong(_songs[index]));
-        }
-
-        if (!_player.playing) {
-          await _player.play();
-        }
-      } catch (_) {}
-    } finally {
-      _crossfadeInProgress = false;
-
-      if (!_isDisposed && _crossfadeService.enabled && _player.playing) {
-        _startCrossfadeMonitor();
-      }
     }
   }
 
@@ -1070,8 +1025,16 @@ class AudioPlayerService {
       preload: true,
     );
 
+    // Mantiene sincronizado el LoopMode nativo con la lista recién
+    // cargada (ver _syncNativeLoopMode).
+    unawaited(_syncNativeLoopMode());
+
     _updateTrackGain(_songs[safeIndex]);
 
+    /*
+     * Como la posición es 0, esto establece correctamente
+     * el comienzo del Fade In.
+     */
     await _applyEffectiveVolume();
 
     _emitCurrentState();
@@ -1108,8 +1071,17 @@ class AudioPlayerService {
       return _loadLinuxSong(index, position: Duration.zero, autoplay: true);
     }
 
-    await _player.setVolume(0.0);
-
+    /*
+     * Primero cambiamos la pista.
+     *
+     * La posición será 0.
+     *
+     * _applyEffectiveVolume() calculará automáticamente:
+     *
+     *     Fade Factor = 0
+     *
+     * si el Fade In está activo.
+     */
     await _player.seek(Duration.zero, index: index);
 
     _updateTrackGain(targetSong);
@@ -1118,9 +1090,7 @@ class AudioPlayerService {
       await _applyAndroidTrackGain();
     }
 
-    final newVolume = _getEffectiveVolumeForSong(targetSong);
-
-    await _player.setVolume(newVolume);
+    await _applyEffectiveVolume();
 
     _emitCurrentState();
 
@@ -1129,7 +1099,7 @@ class AudioPlayerService {
     await _player.play();
 
     if (_crossfadeService.enabled) {
-      _startCrossfadeMonitor();
+      _startFadeMonitor();
     }
 
     return result;
@@ -1342,17 +1312,16 @@ class AudioPlayerService {
   // CANCELAR TRANSICIÓN
 
   void _cancelTransition() {
-    _crossfadeGeneration++;
-
-    _crossfadeInProgress = false;
-
-    _crossfadeCheckInProgress = false;
-
     if (_isLinux) {
       _linuxLoadGeneration++;
     }
 
-    _stopCrossfadeMonitor();
+    /*
+     * Ya no existe una animación de crossfade que haya que cancelar.
+     *
+     * El Fade se basa en la posición, por lo que cambiar de pista
+     * o hacer seek simplemente provoca un nuevo cálculo.
+     */
   }
 
   // SIGUIENTE
@@ -1482,24 +1451,31 @@ class AudioPlayerService {
     if (index >= 0 && index < _songs.length) {
       _updateTrackGain(_songs[index]);
 
+      if (Platform.isAndroid) {
+        await _applyAndroidTrackGain();
+      }
+
+      /*
+       * Esto es importante al reanudar.
+       *
+       * Si la canción está en el segundo 2 de un Fade In de 4s,
+       * volverá exactamente al 50%.
+       *
+       * Si está en el segundo 198 de una canción de 200s con
+       * Fade Out de 4s, volverá exactamente al 50%.
+       */
       await _applyEffectiveVolume();
     }
 
     await _player.play();
 
     if (_crossfadeService.enabled) {
-      _startCrossfadeMonitor();
+      _startFadeMonitor();
     }
   }
 
   Future<void> pause() async {
-    _stopCrossfadeMonitor();
-
-    _crossfadeGeneration++;
-
-    _crossfadeInProgress = false;
-
-    _crossfadeCheckInProgress = false;
+    _stopFadeMonitor();
 
     await _player.pause();
   }
@@ -1509,13 +1485,7 @@ class AudioPlayerService {
   }
 
   Future<void> stop() async {
-    _stopCrossfadeMonitor();
-
-    _crossfadeGeneration++;
-
-    _crossfadeInProgress = false;
-
-    _crossfadeCheckInProgress = false;
+    _stopFadeMonitor();
 
     await _player.stop();
   }
@@ -1541,15 +1511,40 @@ class AudioPlayerService {
 
     await _player.seek(position, index: index);
 
-    if (index != null &&
-        index >= 0 &&
-        index < _songs.length &&
-        Platform.isAndroid) {
-      await _applyAndroidTrackGain();
+    if (index != null && index >= 0 && index < _songs.length) {
+      _updateTrackGain(_songs[index]);
+
+      if (Platform.isAndroid) {
+        await _applyAndroidTrackGain();
+      }
     }
 
+    /*
+     * EL PUNTO CLAVE DEL NUEVO SISTEMA.
+     *
+     * Después del seek no iniciamos ninguna animación.
+     *
+     * Simplemente preguntamos:
+     *
+     * "¿En qué posición quedamos?"
+     *
+     * y calculamos el factor correspondiente.
+     *
+     * Ejemplo:
+     *
+     * Fade = 4s
+     * Seek = 2s
+     *
+     * Fade In = 50%
+     *
+     * Seek = duración - 2s
+     *
+     * Fade Out = 50%
+     */
+    await _applyEffectiveVolume();
+
     if (_player.playing && _crossfadeService.enabled) {
-      _startCrossfadeMonitor();
+      _startFadeMonitor();
     }
   }
 
@@ -1558,10 +1553,14 @@ class AudioPlayerService {
   Future<void> setVolume(double volume) async {
     _baseVolume = volume.clamp(0.0, 1.0).toDouble();
 
-    if (_crossfadeInProgress) {
-      return;
-    }
-
+    /*
+     * El volumen configurado por el usuario sigue siendo
+     * el volumen BASE.
+     *
+     * El Fade se aplica encima:
+     *
+     * baseVolume × fadeFactor
+     */
     await _applyEffectiveVolume();
   }
 
@@ -1580,6 +1579,10 @@ class AudioPlayerService {
     _shuffleEnabled = shuffleEnabled;
 
     _repeatMode = repeatMode;
+
+    // Mantiene el LoopMode nativo del reproductor sincronizado con el
+    // modo "Repetir" elegido (ver _syncNativeLoopMode).
+    unawaited(_syncNativeLoopMode());
   }
 
   // DURACIÓN
@@ -1663,6 +1666,8 @@ class AudioPlayerService {
   Future<void> clear() async {
     _cancelTransition();
 
+    _stopFadeMonitor();
+
     await _player.stop();
 
     _songs.clear();
@@ -1712,13 +1717,9 @@ class AudioPlayerService {
 
     _isDisposed = true;
 
-    _stopCrossfadeMonitor();
+    _stopFadeMonitor();
 
-    _crossfadeGeneration++;
-
-    _crossfadeService.secondsNotifier.removeListener(
-      _handleCrossfadeSettingChanged,
-    );
+    _crossfadeService.secondsNotifier.removeListener(_handleFadeSettingChanged);
 
     await _playerStateSubscription?.cancel();
 
