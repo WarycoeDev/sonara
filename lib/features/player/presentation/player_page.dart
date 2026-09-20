@@ -71,7 +71,7 @@ class PlayerPage extends StatelessWidget {
               return Center(child: Text(l10n.noSongPlaying));
             }
 
-            return _PlayerLayout(key: ValueKey(song.id), song: song);
+            return _PlayerLayout(song: song);
           },
         ),
       ),
@@ -140,17 +140,55 @@ class _PlayerLayout extends StatelessWidget {
             child: Column(
               children: [
                 RepaintBoundary(
-                  child: SizedBox(
-                    width: artworkSize,
-                    height: artworkSize,
-                    child: _AlbumArtwork(coverPath: song.coverPath),
+                  child: AnimatedSwitcher(
+                    duration: const Duration(milliseconds: 400),
+                    switchInCurve: Curves.easeOutCubic,
+                    switchOutCurve: Curves.easeInCubic,
+                    transitionBuilder: (child, animation) {
+                      return FadeTransition(
+                        opacity: animation,
+                        child: ScaleTransition(
+                          scale: Tween<double>(
+                            begin: 0.92,
+                            end: 1.0,
+                          ).animate(animation),
+                          child: child,
+                        ),
+                      );
+                    },
+                    child: SizedBox(
+                      key: ValueKey<String>(song.id),
+                      width: artworkSize,
+                      height: artworkSize,
+                      child: _AlbumArtwork(coverPath: song.coverPath),
+                    ),
                   ),
                 ),
                 SizedBox(height: (18 * safeScale).clamp(10.0, 28.0).toDouble()),
-                _SongInformation(
-                  title: song.title,
-                  artist: song.artist,
-                  safeScale: safeScale,
+                AnimatedSwitcher(
+                  duration: const Duration(milliseconds: 350),
+                  switchInCurve: Curves.easeOut,
+                  switchOutCurve: Curves.easeIn,
+                  transitionBuilder: (child, animation) {
+                    final slideAnimation = Tween<Offset>(
+                      begin: const Offset(0, 0.15),
+                      end: Offset.zero,
+                    ).animate(animation);
+
+                    return FadeTransition(
+                      opacity: animation,
+                      child: SlideTransition(
+                        position: slideAnimation,
+                        child: child,
+                      ),
+                    );
+                  },
+                  child: _SongInformation(
+                    key: ValueKey<String>(song.id),
+                    title: song.title,
+                    artist: song.artist,
+                    safeScale: safeScale,
+                  ),
                 ),
                 SizedBox(height: (12 * safeScale).clamp(8.0, 20.0).toDouble()),
                 const _ProgressSection(),
@@ -217,6 +255,7 @@ class _SongInformation extends StatelessWidget {
   final double safeScale;
 
   const _SongInformation({
+    super.key,
     required this.title,
     required this.artist,
     required this.safeScale,

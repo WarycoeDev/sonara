@@ -850,9 +850,45 @@ class AudioPlayerService {
     final nextSong = _songs[nextIndex];
 
     try {
-      final duration = _crossfadeService.duration;
+      final configuredDuration = _crossfadeService.duration;
 
-      final milliseconds = math.max(100, duration.inMilliseconds);
+      /*
+       * TIEMPO REAL RESTANTE
+       *
+       * Si el usuario hizo seek cerca del final (dentro del margen del
+       * crossfade), el tiempo real que queda puede ser mucho menor que
+       * la duración configurada.
+       *
+       * Si usáramos siempre `configuredDuration`, el
+       * ConcatenatingAudioSource llegaría solo al final de la canción
+       * actual (avance natural/gapless) mucho antes de que termine
+       * nuestra animación manual. Eso provoca el salto reportado:
+       * la siguiente canción arranca sola a volumen normal y luego
+       * nuestro código la reinicia a 0:00.
+       *
+       * Por eso el fade se limita al tiempo real disponible.
+       */
+      const safetyMargin = Duration(milliseconds: 150);
+      const minimumFade = Duration(milliseconds: 100);
+
+      var effectiveDuration = configuredDuration;
+
+      final currentTrackDuration = _player.duration;
+
+      if (currentTrackDuration != null &&
+          currentTrackDuration > Duration.zero) {
+        final realRemaining = currentTrackDuration - _player.position;
+
+        if (realRemaining < effectiveDuration) {
+          effectiveDuration = realRemaining - safetyMargin;
+        }
+      }
+
+      if (effectiveDuration < minimumFade) {
+        effectiveDuration = minimumFade;
+      }
+
+      final milliseconds = math.max(100, effectiveDuration.inMilliseconds);
 
       final steps = math.max(2, (milliseconds / 50).round());
 
@@ -860,19 +896,14 @@ class AudioPlayerService {
         milliseconds: math.max(10, (milliseconds / steps).round()),
       );
 
-      /*
-       * En Android estas funciones devuelven únicamente _baseVolume.
-       *
-       * ReplayGain + Preamp permanecen en LoudnessEnhancer durante
-       * toda la transición.
-       */
       final oldVolume = _getEffectiveVolumeForSong(oldSong);
       final newVolume = _getEffectiveVolumeForSong(nextSong);
 
       debugPrint(
         '[SONARA CROSSFADE] '
         '${oldSong.title} -> ${nextSong.title} '
-        '(${duration.inSeconds}s)',
+        '(configurado: ${configuredDuration.inSeconds}s, '
+        'efectivo: ${(milliseconds / 1000).toStringAsFixed(2)}s)',
       );
 
       // FADE OUT
@@ -882,6 +913,14 @@ class AudioPlayerService {
             _isDisposed ||
             !_crossfadeService.enabled) {
           return;
+        }
+
+        // Si el reproductor ya avanzó solo a la siguiente canción
+        // (avance natural/gapless porque quedaba menos tiempo del
+        // esperado), dejamos de tocar el volumen: ya no corresponde
+        // a la canción que se estaba desvaneciendo.
+        if (!_isLinux && _player.currentIndex != oldIndex) {
+          break;
         }
 
         final progress = step / steps;
@@ -909,7 +948,11 @@ class AudioPlayerService {
           position: Duration.zero,
           autoplay: false,
         );
-      } else {
+      } else if (_player.currentIndex != nextIndex) {
+        // Solo forzamos el seek si el reproductor todavía NO llegó
+        // por su cuenta a la siguiente pista. Si ya avanzó de forma
+        // natural, reiniciarlo a 0 es justo el bug que causaba el
+        // salto de vuelta al inicio.
         await _player.seek(Duration.zero, index: nextIndex);
       }
 
@@ -925,7 +968,9 @@ class AudioPlayerService {
 
       // REPRODUCIR
 
-      await _player.play();
+      if (!_player.playing) {
+        await _player.play();
+      }
 
       // FADE IN
 
