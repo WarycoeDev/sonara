@@ -398,6 +398,7 @@ class AudioPlayerService {
    * mismo camino (playAtIndex) que usa el usuario al tocar "siguiente"
    * o "anterior" manualmente, así el Fade se aplica siempre igual.
    */
+
   Future<void> _handleTrackCompleted() async {
     if (_isDisposed || _songs.isEmpty) {
       return;
@@ -409,22 +410,18 @@ class AudioPlayerService {
 
     final index = currentIndex ?? 0;
 
+    // ===============================================================
+    // REPETIR UNA
+    // ===============================================================
     if (_repeatMode == 1) {
-      /*
-       * Modo "Repetir una".
-       *
-       * En condiciones normales, LoopMode.one del propio reproductor
-       * (ver _syncNativeLoopMode) ya repite la pista de forma nativa
-       * e instantánea, sin volver a abrir el archivo, así que este
-       * evento normalmente ni siquiera debería dispararse en este
-       * modo. Esta rama queda como respaldo por si la plataforma no
-       * soporta LoopMode.one.
-       */
       await playAtIndex(index);
 
       return;
     }
 
+    // ===============================================================
+    // ALEATORIO
+    // ===============================================================
     if (_shuffleEnabled && _songs.length > 1) {
       final nextIndex = _getRandomIndexExcluding(index);
 
@@ -433,6 +430,9 @@ class AudioPlayerService {
       return;
     }
 
+    // ===============================================================
+    // SIGUIENTE CANCIÓN
+    // ===============================================================
     final nextIndex = index + 1;
 
     if (nextIndex < _songs.length) {
@@ -441,8 +441,57 @@ class AudioPlayerService {
       return;
     }
 
+    // ===============================================================
+    // REPETIR TODA LA COLA
+    // ===============================================================
     if (_repeatMode == 2) {
       await playAtIndex(0);
+
+      return;
+    }
+
+    // ===============================================================
+    // NO REPETIR
+    //
+    // Llegamos al final de la última canción.
+    //
+    // Primero pausamos para detener completamente el audio.
+    //
+    // Después hacemos seek a 0:00. Esto es MUY importante porque
+    // just_audio permanece en ProcessingState.completed después
+    // de terminar una canción.
+    //
+    // El seek a 0:00 cambia nuevamente el reproductor a un estado
+    // reproducible (ready), permitiendo que el botón Play funcione
+    // inmediatamente sin que el usuario tenga que hacer seek manual.
+    // ===============================================================
+    try {
+      await _player.pause();
+
+      await _player.seek(Duration.zero);
+
+      // Recalcular el volumen porque la posición ahora es 0:00.
+      //
+      // Si el Fade In está activo, el volumen quedará correctamente
+      // preparado para comenzar desde cero cuando se pulse Play.
+      await _applyEffectiveVolume();
+
+      _stopFadeMonitor();
+
+      _emitCurrentState();
+
+      debugPrint(
+        '[SONARA PLAYER] '
+        'Fin de la cola alcanzado. '
+        'Modo no repetir: detenido en 0:00 y listo para reproducir.',
+      );
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[SONARA PLAYER] '
+        'Error al preparar reproducción desde 0:00: $error',
+      );
+
+      debugPrintStack(stackTrace: stackTrace);
     }
   }
 
