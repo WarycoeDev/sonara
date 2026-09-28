@@ -8,7 +8,14 @@ import 'package:just_audio/just_audio.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../../../app/crossfade_service.dart';
+import '../../../../app/playback_fade_layer.dart';
 import '../../../library/domain/models/song.dart';
+
+/// Un "candado de silencio". Cada operación toma el suyo y lo suelta una sola
+/// vez. El volumen es 0 mientras exista al menos un candado.
+class _MuteHold {
+  bool released = false;
+}
 
 class AudioPlayerService {
   AudioPlayerService._internal() {
@@ -20,9 +27,15 @@ class AudioPlayerService {
       ),
     );
 
-    _listenToPlayer();
+    // La capa de fade vive fuera de este servicio. Solo le damos una foto del
+    // reproductor y ella nos devuelve un multiplicador.
+    _fade = PlaybackFadeLayer(
+      settings: _crossfadeService,
+      sampler: _sampleForFade,
+      onGainChanged: () => unawaited(_syncVolume()),
+    );
 
-    _crossfadeService.secondsNotifier.addListener(_handleFadeSettingChanged);
+    _listenToPlayer();
 
     unawaited(_loadReplayGainPreamp());
 
@@ -42,6 +55,10 @@ class AudioPlayerService {
   late final AudioPlayer _player;
 
   late final AndroidLoudnessEnhancer _loudnessEnhancer;
+
+  late final PlaybackFadeLayer _fade;
+
+  final CrossfadeService _crossfadeService = CrossfadeService.instance;
 
   final List<Song> _songs = <Song>[];
 
@@ -152,6 +169,9 @@ class AudioPlayerService {
 
   int get crossfadeSeconds => _crossfadeService.seconds;
 
+  /// Solo informativo. El fade YA NO cambia cómo se reproducen o se completan
+  /// las canciones, así que el PlayerController no debe usarlo para decidir
+  /// nada sobre la lógica de reproducción.
   bool get isCrossfading => _crossfadeService.enabled;
 
   // ============================================================
@@ -165,8 +185,6 @@ class AudioPlayerService {
   // ============================================================
 
   /*
-   * IMPORTANTE:
-   *
    * _baseVolume es el volumen solicitado por el usuario.
    *
    * Permitimos hasta 2.0.
@@ -198,49 +216,199 @@ class AudioPlayerService {
 
   bool _androidLoudnessEnhancerReady = false;
 
-  /*
-   * Ganancia actualmente preparada para la pista.
-   *
-   * No se utiliza para decidir el volumen Android,
-   * pero sirve como estado interno.
-   */
   double _currentTrackGainLinear = 1.0;
 
   /*
-   * Índice para el que el ReplayGain Android ya fue preparado.
+   * Id de la canción para la que el ReplayGain ya está preparado.
    *
-   * Esto evita que callbacks atrasados vuelvan a aplicar
-   * la ganancia de una pista anterior.
+   * Se LEE en _handleNativeIndexChange: si el callback nativo llega tarde o
+   * duplicado para una pista que ya preparamos nosotros, se ignora. (Antes se
+   * guardaba el índice pero nunca se consultaba.)
+   *
+   * Se usa el id y no el índice porque los índices cambian al reordenar o
+   * eliminar de la cola.
    */
-  int? _preparedAndroidIndex;
+  String? _preparedSongId;
 
   // ============================================================
-  // VOLUMEN / TRANSICIONES
+  // VOLUMEN: UN SOLO ESCRITOR
   // ============================================================
-
-  bool _trackTransitionInProgress = false;
-
-  bool _isApplyingVolume = false;
-
-  bool _volumeUpdatePending = false;
 
   /*
-   * Última operación que autorizó modificar el volumen.
+   * El volumen final SIEMPRE se calcula desde el estado actual:
    *
-   * Sirve para impedir que un callback viejo gane una carrera
-   * contra un cambio de pista nuevo.
+   *   silencio (candados)  ×  volumen del usuario  ×  ReplayGain (solo Linux)
+   *                        ×  fade (capa externa)
+   *
+   * y solo _runVolumeLoop llama a _player.setVolume. Nadie más.
+   *
+   * Nunca se pasan índices/generaciones a la función que escribe: se lee lo
+   * que es verdad AHORA, no lo que era verdad cuando alguien la llamó.
    */
-  int _volumeGeneration = 0;
+
+  int _muteHolds = 0;
+
+  _MuteHold _holdMute() {
+    _muteHolds++;
+
+    // Fuerza que el 0.0 se escriba de verdad.
+    _lastWrittenVolume = null;
+
+    return _MuteHold();
+  }
+
+  void _releaseMute(_MuteHold hold) {
+    if (hold.released) {
+      return;
+    }
+
+    hold.released = true;
+
+    if (_muteHolds > 0) {
+      _muteHolds--;
+    }
+  }
+
+  Future<void>? _volumeLoop;
+
+  bool _volumeDirty = false;
+
+  double? _lastWrittenVolume;
+
+  /// Pide que el volumen del player refleje el estado actual.
+  ///
+  /// El Future devuelto se completa cuando el volumen ya fue escrito, incluso
+  /// si otra llamada ya estaba escribiendo. Así `await _syncVolume()` antes de
+  /// `play()` garantiza el orden.
+  Future<void> _syncVolume() {
+    if (_isDisposed) {
+      return Future<void>.value();
+    }
+
+    _volumeDirty = true;
+
+    return _volumeLoop ??= _runVolumeLoop();
+  }
+
+  Future<void> _runVolumeLoop() async {
+    // Cede un microtask para que _volumeLoop ya esté asignado antes de que el
+    // bucle pueda terminar (y limpiarlo en el finally).
+    await Future<void>.value();
+
+    try {
+      while (_volumeDirty && !_isDisposed) {
+        _volumeDirty = false;
+
+        final volume = _computeVolume();
+
+        final last = _lastWrittenVolume;
+
+        if (last != null && (volume - last).abs() < 0.0005) {
+          continue;
+        }
+
+        try {
+          await _player.setVolume(volume);
+
+          _lastWrittenVolume = volume;
+        } catch (error) {
+          _lastWrittenVolume = null;
+
+          if (!_isDisposed) {
+            debugPrint(
+              '[SONARA PLAYER] '
+              'Error setVolume: $error',
+            );
+          }
+        }
+      }
+    } finally {
+      _volumeLoop = null;
+    }
+  }
+
+  double _computeVolume() {
+    if (_isDisposed || _muteHolds > 0) {
+      return 0.0;
+    }
+
+    final index = currentIndex;
+
+    if (index == null || index < 0 || index >= _songs.length) {
+      return 0.0;
+    }
+
+    final song = _songs[index];
+
+    /*
+     * Android: ReplayGain + Preamp los aplica el LoudnessEnhancer.
+     * Linux:   se aplican aquí, sobre el volumen del player.
+     */
+    final replayGain = Platform.isAndroid
+        ? 1.0
+        : _dbToLinear(_getTotalGainDb(song));
+
+    final volume = _baseVolume * replayGain * _fade.gain;
+
+    return volume.clamp(0.0, _maximumPlayerVolume).toDouble();
+  }
 
   // ============================================================
-  // FADE
+  // FADE (solo el puente hacia la capa externa)
   // ============================================================
 
-  final CrossfadeService _crossfadeService = CrossfadeService.instance;
+  static const Duration _durationTolerance = Duration(seconds: 5);
 
-  Timer? _fadeMonitor;
+  FadeSample _sampleForFade() {
+    if (_isDisposed) {
+      return const FadeSample(
+        position: Duration.zero,
+        duration: null,
+        playing: false,
+        isTransitioning: true,
+      );
+    }
 
-  bool _fadeUpdateInProgress = false;
+    final index = currentIndex;
+
+    final Song? song = (index != null && index >= 0 && index < _songs.length)
+        ? _songs[index]
+        : null;
+
+    return FadeSample(
+      position: _player.position,
+      duration: _resolveTrackDuration(song),
+      playing: _player.playing,
+      isTransitioning: _muteHolds > 0,
+    );
+  }
+
+  /*
+   * player.duration puede ser la de la pista ANTERIOR justo después de
+   * cambiar de pista. Si la duración de los metadatos de la canción actual y
+   * la del player difieren mucho, se descarta la del player.
+   */
+  Duration? _resolveTrackDuration(Song? song) {
+    if (_isDisposed) {
+      return null;
+    }
+
+    final hint = song?.duration;
+
+    final live = _player.duration;
+
+    final validHint = (hint != null && hint > Duration.zero) ? hint : null;
+
+    final validLive = (live != null && live > Duration.zero) ? live : null;
+
+    if (validHint != null && validLive != null) {
+      return (validLive - validHint).abs() <= _durationTolerance
+          ? validLive
+          : validHint;
+    }
+
+    return validHint ?? validLive;
+  }
 
   // ============================================================
   // ESTADO
@@ -269,6 +437,39 @@ class AudioPlayerService {
   StreamSubscription<Duration?>? _durationSubscription;
 
   StreamSubscription<int?>? _currentIndexSubscription;
+
+  // ============================================================
+  // REPRODUCCIÓN
+  // ============================================================
+
+  /*
+   * IMPORTANTE:
+   *
+   * El Future de just_audio play() NO se completa al empezar a sonar: se
+   * completa cuando la reproducción se pausa, se detiene o termina.
+   * Por eso nunca se hace `await _player.play()` dentro de una operación que
+   * tenga que liberar el silencio o limpiar estado al terminar.
+   */
+  void _startPlayback() {
+    if (_isDisposed) {
+      return;
+    }
+
+    unawaited(
+      _player.play().catchError((Object error, StackTrace stackTrace) {
+        if (_isDisposed || error is PlayerInterruptedException) {
+          return;
+        }
+
+        debugPrint(
+          '[SONARA PLAYER] '
+          'Error en play(): $error',
+        );
+
+        debugPrintStack(stackTrace: stackTrace);
+      }),
+    );
+  }
 
   // ============================================================
   // ANDROID LOUDNESS ENHANCER
@@ -330,7 +531,7 @@ class AudioPlayerService {
         return;
       }
 
-      _preparedAndroidIndex = index;
+      _preparedSongId = song.id;
 
       debugPrint(
         '[SONARA REPLAYGAIN ANDROID] '
@@ -345,6 +546,30 @@ class AudioPlayerService {
       );
 
       debugPrintStack(stackTrace: stackTrace);
+    }
+  }
+
+  /// Prepara ReplayGain + Preamp para la pista [index].
+  ///
+  /// Si ya estaba preparada para esa misma canción no hace nada (salvo
+  /// [force]), así los callbacks repetidos no disparan trabajo ni logs.
+  Future<void> _prepareTrackGain(int index, {bool force = false}) async {
+    if (_isDisposed || index < 0 || index >= _songs.length) {
+      return;
+    }
+
+    final song = _songs[index];
+
+    if (!force && _preparedSongId == song.id) {
+      return;
+    }
+
+    _updateTrackGain(song);
+
+    if (Platform.isAndroid) {
+      await _prepareAndroidGainForIndex(index);
+    } else {
+      _preparedSongId = song.id;
     }
   }
 
@@ -372,7 +597,7 @@ class AudioPlayerService {
 
       replayGainPreampNotifier.value = value;
 
-      unawaited(_applyEffectiveVolume());
+      unawaited(_syncVolume());
     } catch (error) {
       debugPrint(
         '[SONARA REPLAYGAIN] '
@@ -397,10 +622,6 @@ class AudioPlayerService {
 
     replayGainPreampNotifier.value = safeValue;
 
-    /*
-     * Si Android está reproduciendo una pista,
-     * actualizamos el enhancer.
-     */
     final index = currentIndex;
 
     if (Platform.isAndroid &&
@@ -411,7 +632,7 @@ class AudioPlayerService {
       await _prepareAndroidGainForIndex(index);
     }
 
-    await _applyEffectiveVolume();
+    await _syncVolume();
 
     if (_isDisposed || !persist) {
       return;
@@ -451,11 +672,7 @@ class AudioPlayerService {
         unawaited(_handleTrackCompleted());
       }
 
-      if (state.playing) {
-        _startFadeMonitor();
-      } else {
-        _stopFadeMonitor();
-      }
+      _fade.setPlaying(state.playing);
     });
 
     _positionSubscription = _player.positionStream.listen((value) {
@@ -488,69 +705,63 @@ class AudioPlayerService {
       }
 
       /*
-         * MUY IMPORTANTE:
-         *
-         * currentIndex puede ser null, o puede llegar durante
-         * una operación en la que nuestra lista ya cambió.
-         *
-         * Nunca acceder sin validar.
-         */
+       * currentIndex puede ser null, o llegar durante una operación en la que
+       * nuestra lista ya cambió. Nunca acceder sin validar.
+       */
       if (index == null || index < 0 || index >= _songs.length) {
         return;
       }
 
-      /*
-         * No aplicamos ReplayGain directamente aquí.
-         *
-         * Este callback puede llegar tarde.
-         *
-         * En su lugar iniciamos una preparación controlada.
-         */
       unawaited(_handleNativeIndexChange(index));
     });
   }
 
+  /// Cambio de pista que NO inició una operación nuestra (avance nativo de
+  /// ExoPlayer dentro de la playlist).
   Future<void> _handleNativeIndexChange(int index) async {
     if (_isDisposed || index < 0 || index >= _songs.length) {
       return;
     }
 
     /*
-     * Si estamos haciendo nosotros mismos el cambio,
-     * la operación principal ya se encarga del volumen.
+     * Si estamos haciendo nosotros el cambio, la operación en curso ya se
+     * encarga de ReplayGain, silencio y fade.
      */
-    if (_trackTransitionInProgress) {
+    if (_muteHolds > 0) {
+      return;
+    }
+
+    /*
+     * Callback tardío o duplicado para una pista que ya preparamos: no hay
+     * nada que hacer. Esto evita silenciar la pista a mitad de canción.
+     */
+    if (_preparedSongId == _songs[index].id) {
       return;
     }
 
     final generation = _operationGeneration;
 
-    final song = _songs[index];
+    final hold = _holdMute();
 
-    _updateTrackGain(song);
-
-    if (Platform.isAndroid) {
-      /*
-       * Silenciamos ANTES de modificar ReplayGain.
-       */
-      await _player.setVolume(0.0);
+    try {
+      await _syncVolume();
 
       if (!_isOperationValid(generation)) {
         return;
       }
 
-      await _prepareAndroidGainForIndex(index);
+      await _prepareTrackGain(index);
 
       if (!_isOperationValid(generation)) {
         return;
       }
-    }
 
-    if (!_isOperationValid(generation)) {
-      return;
-    }
+      _fade.resync(position: Duration.zero);
+    } finally {
+      _releaseMute(hold);
 
-    await _applyEffectiveVolume(expectedIndex: index, generation: generation);
+      await _syncVolume();
+    }
   }
 
   // ============================================================
@@ -558,7 +769,7 @@ class AudioPlayerService {
   // ============================================================
 
   Future<void> _handleTrackCompleted() async {
-    if (_isDisposed || _songs.isEmpty || _trackTransitionInProgress) {
+    if (_isDisposed || _songs.isEmpty || _muteHolds > 0) {
       return;
     }
 
@@ -612,10 +823,10 @@ class AudioPlayerService {
     /*
      * FIN REAL DE LA COLA.
      */
-    _stopFadeMonitor();
+    final hold = _holdMute();
 
     try {
-      await _player.setVolume(0.0);
+      await _syncVolume();
 
       if (_isDisposed) {
         return;
@@ -633,6 +844,8 @@ class AudioPlayerService {
         return;
       }
 
+      _fade.resync(position: Duration.zero);
+
       _emitCurrentState();
     } catch (error, stackTrace) {
       if (_isDisposed) {
@@ -645,6 +858,10 @@ class AudioPlayerService {
       );
 
       debugPrintStack(stackTrace: stackTrace);
+    } finally {
+      _releaseMute(hold);
+
+      await _syncVolume();
     }
   }
 
@@ -690,15 +907,12 @@ class AudioPlayerService {
 
     final song = _songs[index];
 
+    final hold = _holdMute();
+
     _linuxLoading = true;
 
-    _trackTransitionInProgress = true;
-
     try {
-      /*
-       * Silencio antes de TODO.
-       */
-      await _player.setVolume(0.0);
+      await _syncVolume();
 
       if (!_isOperationValid(operation) || generation != _linuxLoadGeneration) {
         return null;
@@ -724,9 +938,14 @@ class AudioPlayerService {
 
       await _syncNativeLoopMode();
 
-      _updateTrackGain(song);
+      await _prepareTrackGain(index, force: true);
 
-      await _applyEffectiveVolume(expectedIndex: index, generation: operation);
+      _fade.resync(position: position);
+
+      // El volumen correcto (ReplayGain + fade) se escribe ANTES de sonar.
+      _releaseMute(hold);
+
+      await _syncVolume();
 
       if (!_isOperationValid(operation) || generation != _linuxLoadGeneration) {
         return loadedDuration;
@@ -735,10 +954,7 @@ class AudioPlayerService {
       _emitCurrentState();
 
       if (autoplay) {
-        /*
-         * ReplayGain y fade ya están preparados.
-         */
-        await _player.play();
+        _startPlayback();
       }
 
       return loadedDuration ?? await _waitForDuration();
@@ -765,9 +981,9 @@ class AudioPlayerService {
         _linuxLoading = false;
       }
 
-      if (!_isDisposed && operation == _operationGeneration) {
-        _trackTransitionInProgress = false;
-      }
+      _releaseMute(hold);
+
+      await _syncVolume();
     }
   }
 
@@ -808,272 +1024,6 @@ class AudioPlayerService {
   }
 
   // ============================================================
-  // VOLUMEN EFECTIVO
-  // ============================================================
-
-  double _getEffectiveVolumeForSong(Song song) {
-    /*
-     * Android:
-     *
-     * ReplayGain + Preamp se aplican en
-     * LoudnessEnhancer.
-     *
-     * El volumen del player solamente controla
-     * volumen del usuario + fade.
-     */
-    if (Platform.isAndroid) {
-      return _baseVolume;
-    }
-
-    /*
-     * Linux/Desktop:
-     *
-     * ReplayGain se aplica directamente al
-     * volumen del player.
-     */
-    final gainDb = _getTotalGainDb(song);
-
-    final gainLinear = _dbToLinear(gainDb);
-
-    return _baseVolume * gainLinear;
-  }
-
-  Future<void> _applyEffectiveVolume({
-    int? expectedIndex,
-    int? generation,
-  }) async {
-    if (_isDisposed) {
-      return;
-    }
-
-    if (_isApplyingVolume) {
-      _volumeUpdatePending = true;
-      return;
-    }
-
-    _isApplyingVolume = true;
-
-    try {
-      do {
-        _volumeUpdatePending = false;
-
-        if (_isDisposed) {
-          return;
-        }
-
-        /*
-         * Si la operación que inició esta llamada ya quedó
-         * obsoleta, no tocar el volumen.
-         */
-        if (generation != null && generation != _operationGeneration) {
-          return;
-        }
-
-        Song? song;
-
-        final index = currentIndex;
-
-        if (index != null && index >= 0 && index < _songs.length) {
-          song = _songs[index];
-        }
-
-        /*
-         * Si esperamos una pista concreta y ya estamos en otra,
-         * abortamos.
-         */
-        if (expectedIndex != null && index != expectedIndex) {
-          return;
-        }
-
-        /*
-         * Durante cambio de pista:
-         *
-         * SIEMPRE 0.
-         */
-        if (_trackTransitionInProgress) {
-          await _player.setVolume(0.0);
-          continue;
-        }
-
-        /*
-         * Sin canción:
-         * silencio.
-         */
-        if (song == null) {
-          await _player.setVolume(0.0);
-          continue;
-        }
-
-        /*
-         * Volumen normal.
-         */
-        final normalVolume = _getEffectiveVolumeForSong(song);
-
-        /*
-         * Fade.
-         */
-        final fadeFactor = _getFadeFactor();
-
-        final effectiveVolume = normalVolume * fadeFactor;
-
-        /*
-         * IMPORTANTE:
-         *
-         * Permitimos > 1.0.
-         *
-         * just_audio acepta un double de volumen y 1.0
-         * representa volumen normal. DDart packages
-
-         */
-        final safeVolume = effectiveVolume
-            .clamp(0.0, _maximumPlayerVolume)
-            .toDouble();
-
-        await _player.setVolume(safeVolume);
-      } while (_volumeUpdatePending);
-    } finally {
-      _isApplyingVolume = false;
-    }
-  }
-
-  // ============================================================
-  // FADE
-  // ============================================================
-
-  double _getFadeFactor() {
-    if (!_crossfadeService.enabled) {
-      return 1.0;
-    }
-
-    final fadeDuration = _crossfadeService.duration;
-
-    if (fadeDuration <= Duration.zero) {
-      return 1.0;
-    }
-
-    final currentPosition = _player.position;
-
-    final currentDuration = _player.duration;
-
-    if (currentPosition < Duration.zero) {
-      return 0.0;
-    }
-
-    /*
-     * Sin duración todavía:
-     *
-     * La pista acaba de cargar.
-     * No permitimos que aparezca a volumen completo.
-     */
-    if (currentDuration == null || currentDuration <= Duration.zero) {
-      if (currentPosition <= Duration.zero) {
-        return 0.0;
-      }
-
-      if (currentPosition >= fadeDuration) {
-        return 1.0;
-      }
-
-      return _linearProgress(currentPosition, fadeDuration);
-    }
-
-    var effectiveDuration = fadeDuration;
-
-    final halfDuration = Duration(
-      microseconds: currentDuration.inMicroseconds ~/ 2,
-    );
-
-    if (effectiveDuration > halfDuration) {
-      effectiveDuration = halfDuration;
-    }
-
-    if (effectiveDuration <= Duration.zero) {
-      return 1.0;
-    }
-
-    /*
-     * FADE IN
-     */
-    if (currentPosition < effectiveDuration) {
-      return _linearProgress(currentPosition, effectiveDuration);
-    }
-
-    /*
-     * FADE OUT
-     */
-    final remaining = currentDuration - currentPosition;
-
-    if (remaining <= effectiveDuration) {
-      return _linearProgress(remaining, effectiveDuration);
-    }
-
-    return 1.0;
-  }
-
-  double _linearProgress(Duration elapsed, Duration total) {
-    if (total <= Duration.zero) {
-      return 1.0;
-    }
-
-    final value = elapsed.inMicroseconds / total.inMicroseconds;
-
-    return value.clamp(0.0, 1.0).toDouble();
-  }
-
-  void _startFadeMonitor() {
-    if (_isDisposed || !_crossfadeService.enabled || _fadeMonitor != null) {
-      return;
-    }
-
-    _fadeMonitor = Timer.periodic(const Duration(milliseconds: 40), (_) {
-      unawaited(_updateFadeVolume());
-    });
-  }
-
-  void _stopFadeMonitor() {
-    _fadeMonitor?.cancel();
-    _fadeMonitor = null;
-  }
-
-  Future<void> _updateFadeVolume() async {
-    if (_isDisposed ||
-        !_crossfadeService.enabled ||
-        !_player.playing ||
-        _fadeUpdateInProgress ||
-        _trackTransitionInProgress) {
-      return;
-    }
-
-    _fadeUpdateInProgress = true;
-
-    try {
-      await _applyEffectiveVolume();
-    } finally {
-      _fadeUpdateInProgress = false;
-    }
-  }
-
-  void _handleFadeSettingChanged() {
-    if (_isDisposed) {
-      return;
-    }
-
-    if (!_crossfadeService.enabled) {
-      _stopFadeMonitor();
-
-      unawaited(_applyEffectiveVolume());
-
-      return;
-    }
-
-    unawaited(_applyEffectiveVolume());
-
-    if (_player.playing) {
-      _startFadeMonitor();
-    }
-  }
-
-  // ============================================================
   // LOOP
   // ============================================================
 
@@ -1108,32 +1058,34 @@ class AudioPlayerService {
 
     final operation = _nextOperationGeneration();
 
-    _trackTransitionInProgress = true;
-
-    _stopFadeMonitor();
-
-    /*
-     * Silencio ANTES de tocar la cola.
-     */
-    await _player.setVolume(0.0);
-
-    if (!_isOperationValid(operation)) {
-      return null;
-    }
-
-    if (songs.isEmpty) {
-      await clear();
-      return null;
-    }
-
-    _songs
-      ..clear()
-      ..addAll(songs);
-
-    final safeIndex = initialIndex.clamp(0, _songs.length - 1).toInt();
+    final hold = _holdMute();
 
     try {
+      // Silencio ANTES de tocar la cola.
+      await _syncVolume();
+
+      if (!_isOperationValid(operation)) {
+        return null;
+      }
+
+      if (songs.isEmpty) {
+        await clear();
+        return null;
+      }
+
+      _songs
+        ..clear()
+        ..addAll(songs);
+
+      // La cola cambió: nada está preparado todavía.
+      _preparedSongId = null;
+
+      final safeIndex = initialIndex.clamp(0, _songs.length - 1).toInt();
+
       if (_isLinux) {
+        // _loadLinuxSong toma su propio candado.
+        _releaseMute(hold);
+
         return await _loadLinuxSong(
           safeIndex,
           position: Duration.zero,
@@ -1157,13 +1109,6 @@ class AudioPlayerService {
 
       _playlist = ConcatenatingAudioSource(children: sources);
 
-      /*
-       * just_audio 0.10.x permite cargar la lista
-       * con setAudioSources().
-       *
-       * Aquí usamos setAudioSource porque queremos
-       * conservar explícitamente el objeto playlist.
-       */
       final loadedDuration = await _player.setAudioSource(
         _playlist!,
         initialIndex: safeIndex,
@@ -1177,61 +1122,23 @@ class AudioPlayerService {
 
       await _syncNativeLoopMode();
 
-      final song = _songs[safeIndex];
-
-      _updateTrackGain(song);
-
-      /*
-       * ReplayGain se prepara mientras el player sigue
-       * completamente silenciado.
-       */
-      if (Platform.isAndroid) {
-        await _prepareAndroidGainForIndex(safeIndex);
-      }
+      // ReplayGain se prepara mientras el player sigue silenciado.
+      await _prepareTrackGain(safeIndex, force: true);
 
       if (!_isOperationValid(operation)) {
         return loadedDuration;
       }
 
-      /*
-       * El volumen se prepara AHORA.
-       *
-       * Si fade está activo:
-       *
-       *   posición = 0
-       *   fade = 0
-       *   volumen = 0
-       */
-      await _applyEffectiveVolume(
-        expectedIndex: safeIndex,
-        generation: operation,
-      );
-
-      if (!_isOperationValid(operation)) {
-        return loadedDuration;
-      }
+      // El fade de esta canción empieza desde su inicio.
+      _fade.resync(position: Duration.zero);
 
       _emitCurrentState();
 
       return loadedDuration ?? await _waitForDuration();
     } finally {
-      if (_isOperationValid(operation)) {
-        _trackTransitionInProgress = false;
+      _releaseMute(hold);
 
-        /*
-         * Una última aplicación.
-         *
-         * Si fade está activo y la posición es 0,
-         * seguirá siendo 0.
-         *
-         * Si fade está desactivado,
-         * será el volumen normal.
-         */
-        await _applyEffectiveVolume(
-          expectedIndex: safeIndex,
-          generation: operation,
-        );
-      }
+      await _syncVolume();
     }
   }
 
@@ -1261,28 +1168,27 @@ class AudioPlayerService {
 
     final operation = _nextOperationGeneration();
 
-    _trackTransitionInProgress = true;
-
-    _stopFadeMonitor();
-
-    /*
-     * SILENCIO INMEDIATO.
-     */
-    await _player.setVolume(0.0);
-
-    if (!_isOperationValid(operation)) {
-      return null;
-    }
-
-    final targetSong = _songs[index];
-
-    debugPrint(
-      '[SONARA PLAYER] '
-      'Cambio a [$index] ${targetSong.title}',
-    );
+    final hold = _holdMute();
 
     try {
+      // SILENCIO INMEDIATO.
+      await _syncVolume();
+
+      if (!_isOperationValid(operation)) {
+        return null;
+      }
+
+      final targetSong = _songs[index];
+
+      debugPrint(
+        '[SONARA PLAYER] '
+        'Cambio a [$index] ${targetSong.title}',
+      );
+
       if (_isLinux) {
+        // _loadLinuxSong toma su propio candado.
+        _releaseMute(hold);
+
         return await _loadLinuxSong(
           index,
           position: Duration.zero,
@@ -1290,42 +1196,19 @@ class AudioPlayerService {
         );
       }
 
-      /*
-       * El seek ocurre mientras el volumen es 0.
-       */
+      // El seek ocurre mientras el volumen es 0.
       await _player.seek(Duration.zero, index: index);
 
       if (!_isOperationValid(operation)) {
         return null;
       }
 
-      /*
-       * VALIDACIÓN EXTRA.
-       */
       if (index < 0 || index >= _songs.length) {
         return null;
       }
 
-      final song = _songs[index];
-
-      _updateTrackGain(song);
-
-      /*
-       * ReplayGain ANTES de play().
-       */
-      if (Platform.isAndroid) {
-        await _prepareAndroidGainForIndex(index);
-      }
-
-      if (!_isOperationValid(operation)) {
-        return null;
-      }
-
-      /*
-       * Fade/RePlayGain quedan preparados
-       * mientras seguimos silenciados.
-       */
-      await _applyEffectiveVolume(expectedIndex: index, generation: operation);
+      // ReplayGain ANTES de sonar.
+      await _prepareTrackGain(index);
 
       if (!_isOperationValid(operation)) {
         return null;
@@ -1337,38 +1220,27 @@ class AudioPlayerService {
         return result;
       }
 
-      /*
-       * SOLO AHORA empezamos a reproducir.
-       *
-       * Esto evita el pequeño instante en que se podía
-       * escuchar la pista con el volumen anterior.
-       */
-      await _player.play();
+      // Fade de ESTA canción desde su inicio, con posición conocida (0), no
+      // la que player.position tenga en este instante.
+      _fade.resync(position: Duration.zero);
+
+      // Se quita el silencio y se escribe el volumen correcto (con el fade
+      // ya en su punto de partida) ANTES de reproducir.
+      _releaseMute(hold);
+
+      await _syncVolume();
 
       if (!_isOperationValid(operation)) {
         return result;
       }
 
+      _startPlayback();
+
       return result;
     } finally {
-      if (_isOperationValid(operation)) {
-        _trackTransitionInProgress = false;
+      _releaseMute(hold);
 
-        /*
-         * NO esperamos otro cambio de ReplayGain.
-         *
-         * Simplemente calculamos el volumen final desde
-         * la pista actual.
-         */
-        await _applyEffectiveVolume(
-          expectedIndex: index,
-          generation: operation,
-        );
-
-        if (_crossfadeService.enabled && _player.playing) {
-          _startFadeMonitor();
-        }
-      }
+      await _syncVolume();
     }
   }
 
@@ -1756,62 +1628,36 @@ class AudioPlayerService {
       return;
     }
 
-    final operation = _nextOperationGeneration();
-
-    _trackTransitionInProgress = true;
-
-    /*
-     * Silencio antes de preparar ReplayGain.
-     */
-    await _player.setVolume(0.0);
-
-    if (!_isOperationValid(operation)) {
+    // Ya está sonando: no hay nada que hacer (y no se toca el volumen).
+    if (_player.playing) {
       return;
     }
 
-    final song = _songs[index];
+    final hold = _holdMute();
 
-    _updateTrackGain(song);
+    try {
+      await _syncVolume();
 
-    if (Platform.isAndroid) {
-      await _prepareAndroidGainForIndex(index);
+      if (_isDisposed) {
+        return;
+      }
+
+      // No hace nada si la pista ya estaba preparada.
+      await _prepareTrackGain(index);
+
+      if (_isDisposed) {
+        return;
+      }
+
+      // Tras pausa o carga, posición fresca desde el player.
+      _fade.resync();
+    } finally {
+      _releaseMute(hold);
+
+      await _syncVolume();
     }
 
-    if (!_isOperationValid(operation)) {
-      return;
-    }
-
-    /*
-     * Preparar volumen + fade.
-     */
-    await _applyEffectiveVolume(expectedIndex: index, generation: operation);
-
-    if (!_isOperationValid(operation)) {
-      return;
-    }
-
-    /*
-     * Quitamos el bloqueo JUSTO antes de play().
-     *
-     * El volumen ya está preparado.
-     */
-    _trackTransitionInProgress = false;
-
-    await _applyEffectiveVolume(expectedIndex: index, generation: operation);
-
-    if (!_isOperationValid(operation)) {
-      return;
-    }
-
-    await _player.play();
-
-    if (_isDisposed) {
-      return;
-    }
-
-    if (_crossfadeService.enabled) {
-      _startFadeMonitor();
-    }
+    _startPlayback();
   }
 
   // ============================================================
@@ -1819,8 +1665,6 @@ class AudioPlayerService {
   // ============================================================
 
   Future<void> pause() async {
-    _stopFadeMonitor();
-
     if (_isDisposed) {
       return;
     }
@@ -1841,16 +1685,14 @@ class AudioPlayerService {
   // ============================================================
 
   Future<void> stop() async {
-    _stopFadeMonitor();
-
     if (_isDisposed) {
       return;
     }
 
-    _trackTransitionInProgress = true;
+    final hold = _holdMute();
 
     try {
-      await _player.setVolume(0.0);
+      await _syncVolume();
 
       if (_isDisposed) {
         return;
@@ -1862,11 +1704,13 @@ class AudioPlayerService {
         return;
       }
 
-      _preparedAndroidIndex = null;
+      _preparedSongId = null;
+
+      _fade.resync(position: Duration.zero);
     } finally {
-      if (!_isDisposed) {
-        _trackTransitionInProgress = false;
-      }
+      _releaseMute(hold);
+
+      await _syncVolume();
     }
   }
 
@@ -1883,13 +1727,11 @@ class AudioPlayerService {
 
     final wasPlaying = _player.playing;
 
-    _trackTransitionInProgress = true;
+    final hold = _holdMute();
 
     try {
-      /*
-       * Silencio durante seek.
-       */
-      await _player.setVolume(0.0);
+      // Silencio durante el seek.
+      await _syncVolume();
 
       if (!_isOperationValid(operation)) {
         return;
@@ -1899,6 +1741,9 @@ class AudioPlayerService {
         if (index < 0 || index >= _songs.length) {
           return;
         }
+
+        // _loadLinuxSong toma su propio candado.
+        _releaseMute(hold);
 
         await _loadLinuxSong(index, position: position, autoplay: wasPlaying);
 
@@ -1916,42 +1761,21 @@ class AudioPlayerService {
       if (effectiveIndex != null &&
           effectiveIndex >= 0 &&
           effectiveIndex < _songs.length) {
-        final song = _songs[effectiveIndex];
-
-        _updateTrackGain(song);
-
-        if (Platform.isAndroid) {
-          await _prepareAndroidGainForIndex(effectiveIndex);
-        }
+        // Solo trabaja si el seek cambió de canción.
+        await _prepareTrackGain(effectiveIndex);
 
         if (!_isOperationValid(operation)) {
           return;
         }
 
-        /*
-         * Para seek dentro de una canción,
-         * recalculamos fade desde la nueva posición.
-         */
-        _trackTransitionInProgress = false;
-
-        await _applyEffectiveVolume(
-          expectedIndex: effectiveIndex,
-          generation: operation,
-        );
+        // El fade se recalcula desde la nueva posición (la conocemos: es la
+        // que acabamos de pedir).
+        _fade.resync(position: position);
       }
     } finally {
-      if (!_isDisposed && operation == _operationGeneration) {
-        _trackTransitionInProgress = false;
+      _releaseMute(hold);
 
-        await _applyEffectiveVolume(
-          expectedIndex: index ?? currentIndex,
-          generation: operation,
-        );
-
-        if (_player.playing && _crossfadeService.enabled) {
-          _startFadeMonitor();
-        }
-      }
+      await _syncVolume();
     }
   }
 
@@ -1966,7 +1790,7 @@ class AudioPlayerService {
 
     _baseVolume = volume.clamp(0.0, _maximumPlayerVolume).toDouble();
 
-    await _applyEffectiveVolume();
+    await _syncVolume();
   }
 
   // ============================================================
@@ -2107,30 +1931,21 @@ class AudioPlayerService {
       return;
     }
 
-    /*
-     * Invalidar absolutamente todo.
-     */
+    // Invalidar absolutamente todo.
     _nextOperationGeneration();
 
     _linuxLoadGeneration++;
 
-    _stopFadeMonitor();
-
-    _trackTransitionInProgress = true;
+    final hold = _holdMute();
 
     try {
-      /*
-       * SILENCIO.
-       */
-      await _player.setVolume(0.0);
+      await _syncVolume();
 
       if (_isDisposed) {
         return;
       }
 
-      /*
-       * Detener libera los decoders.
-       */
+      // Detener libera los decoders.
       await _player.stop();
 
       if (_isDisposed) {
@@ -2145,11 +1960,8 @@ class AudioPlayerService {
 
       _currentTrackGainLinear = 1.0;
 
-      _preparedAndroidIndex = null;
+      _preparedSongId = null;
 
-      /*
-       * Resetear LoudnessEnhancer.
-       */
       if (Platform.isAndroid && _androidLoudnessEnhancerReady) {
         try {
           await _loudnessEnhancer.setTargetGain(0.0);
@@ -2161,20 +1973,10 @@ class AudioPlayerService {
       }
 
       /*
-       * NO hacemos:
-       *
-       * setAudioSource(
-       *   ConcatenatingAudioSource(children: [])
-       * )
-       *
-       * Esto puede producir estados inválidos en just_audio
-       * y era una de las zonas problemáticas al cerrar/vaciar.
-       *
-       * stop() ya conserva el estado suficiente para que
-       * podamos cargar posteriormente una nueva fuente.
+       * NO hacemos setAudioSource(ConcatenatingAudioSource(children: [])):
+       * puede producir estados inválidos en just_audio. stop() conserva el
+       * estado suficiente para cargar una nueva fuente después.
        */
-
-      await _player.setVolume(0.0);
 
       if (_currentIndexController.isClosed == false) {
         _currentIndexController.add(null);
@@ -2188,9 +1990,9 @@ class AudioPlayerService {
         _positionController.add(Duration.zero);
       }
     } finally {
-      if (!_isDisposed) {
-        _trackTransitionInProgress = false;
-      }
+      _releaseMute(hold);
+
+      await _syncVolume();
     }
   }
 
@@ -2203,20 +2005,14 @@ class AudioPlayerService {
       return;
     }
 
-    /*
-     * INVALIDAR TODO antes de cualquier await.
-     */
+    // INVALIDAR TODO antes de cualquier await.
     _isDisposed = true;
 
     _operationGeneration++;
 
     _linuxLoadGeneration++;
 
-    _trackTransitionInProgress = true;
-
-    _stopFadeMonitor();
-
-    _crossfadeService.secondsNotifier.removeListener(_handleFadeSettingChanged);
+    _fade.dispose();
 
     try {
       await _playerStateSubscription?.cancel();

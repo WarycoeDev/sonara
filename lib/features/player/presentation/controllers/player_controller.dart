@@ -36,7 +36,11 @@ class PlayerController extends ChangeNotifier {
 
   bool _isDisposed = false;
 
-  bool _isSeeking = false;
+  int _activeSeeks = 0;
+
+  int _seekRequestId = 0;
+
+  bool _isChangingTrack = false;
 
   bool _hasRegisteredCurrentPlayback = false;
 
@@ -48,7 +52,9 @@ class PlayerController extends ChangeNotifier {
 
   Duration _duration = Duration.zero;
 
-  static const Duration _positionJitterThreshold = Duration(milliseconds: 350);
+  static const Duration _positionJitterThreshold = Duration(milliseconds: 1000);
+
+  static const Duration _durationTolerance = Duration(seconds: 5);
 
   static const Duration _completionThreshold = Duration(milliseconds: 500);
 
@@ -65,6 +71,8 @@ class PlayerController extends ChangeNotifier {
   StreamSubscription<int?>? _currentIndexSubscription;
 
   int _playbackRequestId = 0;
+
+  bool get _isSeeking => _activeSeeks > 0;
 
   PlayerController() {
     _statisticsRepository.initialize();
@@ -177,19 +185,28 @@ class PlayerController extends ChangeNotifier {
 
     final song = _queue[index];
 
-    _currentIndex = index;
+    final changed = _currentSong?.id != song.id;
 
+    _currentIndex = index;
     _currentSong = song;
 
-    _hasRegisteredCurrentPlayback = false;
+    if (changed) {
+      _hasRegisteredCurrentPlayback = false;
 
-    _position = _audioPlayerService.position;
+      _position = Duration.zero;
 
-    _positionAnchorTime = _isPlaying ? DateTime.now() : null;
+      _positionAnchorTime = _isPlaying ? DateTime.now() : null;
 
-    _duration = _audioPlayerService.duration ?? Duration.zero;
+      _duration = song.duration ?? Duration.zero;
 
-    _isFavorite = _favoritesRepository.isFavorite(song.id);
+      _isFavorite = _favoritesRepository.isFavorite(song.id);
+
+      // Avance nativo: no hay cambio de play/pause, así que hay que
+      // registrar la reproducción aquí.
+      if (_isPlaying) {
+        _registerCurrentPlayback();
+      }
+    }
 
     _notify();
   }
@@ -197,7 +214,7 @@ class PlayerController extends ChangeNotifier {
   // POSICIÓN
 
   void _handlePosition(Duration newPosition) {
-    if (_isDisposed || _isSeeking) {
+    if (_isDisposed || _isSeeking || _isChangingTrack) {
       return;
     }
 
@@ -220,21 +237,32 @@ class PlayerController extends ChangeNotifier {
 
     _positionAnchorTime = _isPlaying ? DateTime.now() : null;
 
-    if (!_audioPlayerService.isCrossfading) {
-      _checkCompletionFallback();
-    }
-
     _notify();
   }
 
   // DURACIÓN
+
+  Duration _sanitizeDuration(Duration? live) {
+    final value = live ?? Duration.zero;
+
+    final hint = _currentSong?.duration;
+
+    if (hint != null &&
+        hint > Duration.zero &&
+        value > Duration.zero &&
+        (value - hint).abs() > _durationTolerance) {
+      return hint;
+    }
+
+    return value;
+  }
 
   void _handleDuration(Duration? duration) {
     if (_isDisposed) {
       return;
     }
 
-    final newDuration = duration ?? Duration.zero;
+    final newDuration = _sanitizeDuration(duration);
 
     if (_duration == newDuration) {
       return;
@@ -262,36 +290,28 @@ class PlayerController extends ChangeNotifier {
       _isPlaying = playing;
 
       if (playing) {
-        _position = _audioPlayerService.position;
+        if (!_isChangingTrack) {
+          _position = _audioPlayerService.position;
+        }
 
         _positionAnchorTime = DateTime.now();
-
-        _startPositionTicker();
 
         _registerCurrentPlayback();
       } else {
         _position = _audioPlayerService.position;
 
         _positionAnchorTime = null;
-
-        _stopPositionTicker();
       }
 
       _notify();
     }
 
     if (state.processingState == ProcessingState.completed) {
-      if (_audioPlayerService.isCrossfading) {
-        return;
-      }
-
       _position = _duration;
 
       _positionAnchorTime = null;
 
       _isPlaying = false;
-
-      _stopPositionTicker();
 
       _notify();
 
@@ -306,8 +326,7 @@ class PlayerController extends ChangeNotifier {
         _isSeeking ||
         _isHandlingCompletion ||
         _currentSong == null ||
-        _duration <= Duration.zero ||
-        _audioPlayerService.isCrossfading) {
+        _duration <= Duration.zero) {
       return;
     }
 
@@ -320,8 +339,6 @@ class PlayerController extends ChangeNotifier {
 
       _isPlaying = false;
 
-      _stopPositionTicker();
-
       unawaited(_onSongCompleted());
     }
   }
@@ -331,8 +348,7 @@ class PlayerController extends ChangeNotifier {
         _currentSong == null ||
         _queue.isEmpty ||
         _currentIndex < 0 ||
-        _isDisposed ||
-        _audioPlayerService.isCrossfading) {
+        _isDisposed) {
       return;
     }
 
@@ -373,8 +389,6 @@ class PlayerController extends ChangeNotifier {
 
       _positionAnchorTime = null;
 
-      _stopPositionTicker();
-
       _notify();
     } finally {
       _isHandlingCompletion = false;
@@ -414,12 +428,8 @@ class PlayerController extends ChangeNotifier {
     }
 
     _positionTicker = Timer.periodic(_tickInterval, (_) {
-      if (_isDisposed || _isSeeking || !_isPlaying) {
+      if (_isDisposed || !_isPlaying) {
         return;
-      }
-
-      if (!_audioPlayerService.isCrossfading) {
-        _checkCompletionFallback();
       }
 
       _notify();
@@ -463,7 +473,7 @@ class PlayerController extends ChangeNotifier {
 
     _isFavorite = _favoritesRepository.isFavorite(song.id);
 
-    _stopPositionTicker();
+    _isChangingTrack = true;
 
     _notify();
 
@@ -514,6 +524,10 @@ class PlayerController extends ChangeNotifier {
       _isPlaying = false;
 
       _notify();
+    } finally {
+      if (requestId == _playbackRequestId) {
+        _isChangingTrack = false;
+      }
     }
   }
 
@@ -546,7 +560,7 @@ class PlayerController extends ChangeNotifier {
 
     _isFavorite = _favoritesRepository.isFavorite(song.id);
 
-    _stopPositionTicker();
+    _isChangingTrack = true;
 
     _notify();
 
@@ -577,8 +591,6 @@ class PlayerController extends ChangeNotifier {
 
       if (_isPlaying) {
         _positionAnchorTime = DateTime.now();
-
-        _startPositionTicker();
       }
 
       _notify();
@@ -589,6 +601,10 @@ class PlayerController extends ChangeNotifier {
       );
 
       debugPrintStack(stackTrace: stackTrace);
+    } finally {
+      if (requestId == _playbackRequestId) {
+        _isChangingTrack = false;
+      }
     }
   }
 
@@ -749,7 +765,9 @@ class PlayerController extends ChangeNotifier {
       safePosition = _duration;
     }
 
-    _isSeeking = true;
+    _activeSeeks++;
+
+    final seekId = ++_seekRequestId;
 
     _position = safePosition;
 
@@ -760,13 +778,18 @@ class PlayerController extends ChangeNotifier {
     try {
       await _audioPlayerService.seek(safePosition);
     } finally {
-      _isSeeking = false;
+      _activeSeeks--;
 
-      if (_isPlaying) {
-        _positionAnchorTime = DateTime.now();
+      // Solo el último seek reancla la barra.
+      if (!_isDisposed && seekId == _seekRequestId) {
+        _position = safePosition;
+
+        if (_isPlaying) {
+          _positionAnchorTime = DateTime.now();
+        }
+
+        _notify();
       }
-
-      _notify();
     }
   }
 
@@ -995,6 +1018,8 @@ class PlayerController extends ChangeNotifier {
   Future<void> removeCurrentSong() async {
     ++_playbackRequestId;
 
+    _isChangingTrack = false;
+
     await _audioPlayerService.clear();
 
     _queue.clear();
@@ -1015,8 +1040,6 @@ class PlayerController extends ChangeNotifier {
 
     _hasRegisteredCurrentPlayback = false;
 
-    _stopPositionTicker();
-
     _notify();
   }
 
@@ -1027,9 +1050,19 @@ class PlayerController extends ChangeNotifier {
   // NOTIFICAR
 
   void _notify() {
-    if (!_isDisposed) {
-      notifyListeners();
+    if (_isDisposed) {
+      return;
     }
+
+    // El ticker debe correr siempre que estemos reproduciendo, sin importar
+    // por qué camino cambió _isPlaying.
+    if (_isPlaying) {
+      _startPositionTicker();
+    } else {
+      _stopPositionTicker();
+    }
+
+    notifyListeners();
   }
 
   // DISPOSE

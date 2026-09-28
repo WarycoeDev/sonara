@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
@@ -521,8 +522,7 @@ class _ProgressSection extends StatefulWidget {
 }
 
 class _ProgressSectionState extends State<_ProgressSection> {
-  bool _isDragging = false;
-  double _dragValue = 0.0;
+  double? _dragValue;
 
   @override
   Widget build(BuildContext context) {
@@ -530,50 +530,44 @@ class _ProgressSectionState extends State<_ProgressSection> {
       selector: (_, controller) =>
           (position: controller.position, duration: controller.duration),
       builder: (context, data, child) {
-        final durationMs = data.duration.inMilliseconds;
-        final positionMs = data.position.inMilliseconds;
+        final controller = context.read<PlayerController>();
 
-        final isInvalidState =
-            durationMs <= 0 || positionMs < 0 || positionMs > durationMs;
+        final maxValue = math.max(1, data.duration.inMilliseconds).toDouble();
 
-        final realProgress = isInvalidState
-            ? 0.0
-            : (positionMs / durationMs).clamp(0.0, 1.0);
+        final positionValue = data.position.inMilliseconds.toDouble();
 
-        final currentSliderValue = _isDragging ? _dragValue : realProgress;
+        final sliderValue = (_dragValue ?? positionValue).clamp(0.0, maxValue);
 
-        final displayPosition = _isDragging
-            ? Duration(milliseconds: (durationMs * _dragValue).round())
-            : (isInvalidState ? Duration.zero : data.position);
+        final displayPosition = _dragValue != null
+            ? Duration(milliseconds: _dragValue!.round())
+            : data.position;
 
         return RepaintBoundary(
           child: Column(
             children: [
               Slider(
-                value: currentSliderValue,
+                max: maxValue,
+                value: sliderValue,
                 onChangeStart: (value) {
                   setState(() {
-                    _isDragging = true;
                     _dragValue = value;
                   });
                 },
-                onChanged: durationMs <= 0
-                    ? null
-                    : (value) {
-                        setState(() {
-                          _dragValue = value;
-                        });
-                      },
-                onChangeEnd: (value) {
-                  final targetDuration = Duration(
-                    milliseconds: (durationMs * value).round(),
-                  );
-
-                  context.read<PlayerController>().seek(targetDuration);
-
+                onChanged: (value) {
                   setState(() {
-                    _isDragging = false;
+                    _dragValue = value;
                   });
+                },
+                onChangeEnd: (value) async {
+                  final target = Duration(milliseconds: value.round());
+
+                  await controller.seek(target);
+
+                  if (mounted) {
+                    setState(() {
+                      _dragValue = null;
+                    });
+                  }
                 },
               ),
               Padding(
