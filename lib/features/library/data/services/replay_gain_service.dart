@@ -3,11 +3,15 @@ import 'dart:io';
 import 'android_music_service.dart';
 
 // REPLAYGAIN POR PISTA
+//
 // Calcula la ganancia de sonoridad de una pista.
+//
 // Android:
 // - Delega el cálculo al código nativo.
+//
 // Linux/Desktop:
 // - Usa ffmpeg + filtro ebur128.
+//
 // El resultado se guarda posteriormente en Song.volumeGain.
 
 class ReplayGainService {
@@ -45,8 +49,7 @@ class ReplayGainService {
     } catch (error) {
       print(
         '[SONARA REPLAYGAIN] '
-        'Error calculando ganancia de "$filePath": '
-        '$error',
+        'Error calculando ganancia de "$filePath": $error',
       );
 
       return null;
@@ -83,23 +86,31 @@ class ReplayGainService {
         '-',
       ]);
 
-      final output =
-          '${process.stdout}\n'
-          '${process.stderr}';
+      final output = '${process.stdout}\n${process.stderr}';
 
       final integratedLoudness = _parseIntegratedLoudness(output);
 
       if (integratedLoudness == null) {
         print(
           '[SONARA REPLAYGAIN] '
-          'No se pudo leer la sonoridad de '
-          '"$filePath".',
+          'No se pudo leer la sonoridad de "$filePath".',
         );
 
         return null;
       }
 
-      return _targetLoudnessLufs - integratedLoudness;
+      /*
+       * Ejemplo:
+       *
+       * pista = -12 LUFS
+       * objetivo = -18 LUFS
+       *
+       * gain = -18 - (-12)
+       *      = -6 dB
+       */
+      final gain = _targetLoudnessLufs - integratedLoudness;
+
+      return gain;
     } on ProcessException catch (error) {
       print(
         '[SONARA REPLAYGAIN] '
@@ -111,9 +122,7 @@ class ReplayGainService {
     } catch (error) {
       print(
         '[SONARA REPLAYGAIN] '
-        'Error ejecutando ffmpeg para '
-        '"$filePath": '
-        '$error',
+        'Error ejecutando ffmpeg para "$filePath": $error',
       );
 
       return null;
@@ -131,9 +140,11 @@ class ReplayGainService {
       return null;
     }
 
-    // ffmpeg puede mostrar varios valores I durante el procesamiento.
-    //
-    // El último valor corresponde al resultado integrado final.
+    /*
+     * ebur128 muestra distintos valores I durante el análisis.
+     *
+     * El último corresponde al valor integrado final.
+     */
     final value = matches.last.group(1);
 
     if (value == null) {
