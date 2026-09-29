@@ -18,6 +18,8 @@ import 'library_playlist_page.dart';
 import 'playlist_dialogs.dart';
 import 'song_options.dart';
 
+import '../data/services/song_artwork_service.dart';
+
 enum LibraryCategory { songs, albums, artists, playlists, favorites }
 
 const double _kSongTileExtent = 73.0;
@@ -36,10 +38,8 @@ class _LibraryPageState extends State<LibraryPage> {
   final LocalLibraryRepository _repository = LocalLibraryRepository();
   final PlaylistsRepository _playlistsRepository = PlaylistsRepository();
   final FavoritesRepository _favoritesRepository = FavoritesRepository();
+  final SongArtworkService _artworkService = const SongArtworkService();
 
-  // FIX ARTWORK:
-  // Guardamos la misma instancia de PlayerController para registrar
-  // y eliminar correctamente el listener.
   late final PlayerController _playerController;
 
   List<Song> _songs = const [];
@@ -59,8 +59,6 @@ class _LibraryPageState extends State<LibraryPage> {
   void initState() {
     super.initState();
 
-    // FIX ARTWORK:
-    // Registramos el listener directamente.
     _playerController = context.read<PlayerController>();
     _playerController.addListener(_handlePlayerChanged);
 
@@ -74,7 +72,6 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override
   void dispose() {
-    // FIX ARTWORK:
     _playerController.removeListener(_handlePlayerChanged);
 
     _playlistsRepository.removeListener(_handlePlaylistsChanged);
@@ -108,16 +105,77 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   // ============================================================
-  // FIX ARTWORK
+  // ARTWORK
   // ============================================================
-  //
-  // PlayerController cambia _currentSong cuando se elimina
-  // la carátula, pero LibraryPage tenía otra instancia de Song
-  // dentro de _songs.
-  //
-  // Aquí sincronizamos solamente cuando realmente cambió algo
-  // relacionado con el artwork/archivo.
-  //
+
+  Future<void> _changeSongArtwork(Song song) async {
+    try {
+      final artworkBytes = await _artworkService.changeArtwork(
+        songPath: song.filePath,
+      );
+
+      // null = el usuario canceló el selector.
+      if (artworkBytes == null) {
+        return;
+      }
+
+      final audioFile = File(song.filePath);
+
+      if (!await audioFile.exists()) {
+        throw Exception('No se encontró el archivo de audio.');
+      }
+
+      final stat = await audioFile.stat();
+
+      final updatedSong = song.copyWith(
+        coverPath: null,
+        coverBytes: artworkBytes,
+        fileSize: stat.size,
+        fileLastModified: stat.modified.millisecondsSinceEpoch,
+      );
+
+      final updatedSongs = List<Song>.from(_songs);
+
+      final index = updatedSongs.indexWhere((item) => item.id == song.id);
+
+      if (index == -1) {
+        return;
+      }
+
+      updatedSongs[index] = updatedSong;
+
+      // Actualiza inmediatamente canciones, favoritos,
+      // álbumes y artistas.
+      _updateLibrary(updatedSongs);
+
+      // Sincroniza PlayerController para que los widgets
+      // que escuchan coverBytes también se actualicen.
+      _playerController.syncLibrarySongs(updatedSongs);
+
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {});
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Carátula actualizada correctamente.')),
+      );
+    } catch (error, stackTrace) {
+      debugPrint('[SONARA ARTWORK] Error cambiando carátula: $error');
+
+      debugPrintStack(stackTrace: stackTrace);
+
+      if (!mounted) {
+        return;
+      }
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('No se pudo cambiar la carátula: $error')),
+      );
+    }
+  }
+
   void _handlePlayerChanged() {
     if (!mounted) {
       return;
@@ -137,13 +195,18 @@ class _LibraryPageState extends State<LibraryPage> {
 
     final previousSong = _songs[index];
 
-    final artworkChanged =
+    final songChanged =
         previousSong.coverPath != currentSong.coverPath ||
         previousSong.coverBytes != currentSong.coverBytes ||
         previousSong.fileSize != currentSong.fileSize ||
-        previousSong.fileLastModified != currentSong.fileLastModified;
+        previousSong.fileLastModified != currentSong.fileLastModified ||
+        previousSong.title != currentSong.title ||
+        previousSong.artist != currentSong.artist ||
+        previousSong.album != currentSong.album ||
+        previousSong.isFavorite != currentSong.isFavorite ||
+        previousSong.volumeGain != currentSong.volumeGain;
 
-    if (!artworkChanged) {
+    if (!songChanged) {
       return;
     }
 
@@ -151,16 +214,18 @@ class _LibraryPageState extends State<LibraryPage> {
 
     updatedSongs[index] = currentSong;
 
-    // Esto también reconstruye:
-    // - _albums
-    // - _artists
-    // - _favoriteSongs
-    //
-    // por lo que la modificación se refleja en toda LibraryPage.
+    // Esto reconstruye también:
+    // - favoritos
+    // - álbumes
+    // - artistas
     _updateLibrary(updatedSongs);
 
     setState(() {});
   }
+
+  // ============================================================
+  // FAVORITES
+  // ============================================================
 
   Future<void> _loadFavorites() async {
     try {
@@ -205,6 +270,10 @@ class _LibraryPageState extends State<LibraryPage> {
 
     _loadFavorites();
   }
+
+  // ============================================================
+  // LIBRARY
+  // ============================================================
 
   Future<void> _loadLibrary() async {
     if (_hasLoaded || _isLoading) {
@@ -385,6 +454,10 @@ class _LibraryPageState extends State<LibraryPage> {
     });
   }
 
+  // ============================================================
+  // NAVIGATION
+  // ============================================================
+
   void _openPlaylistPage({
     required String title,
     String? subtitle,
@@ -466,6 +539,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
   void _openPlaylist(Playlist playlist) {
     final l10n = AppLocalizations.of(context)!;
+
     final songs = _resolvePlaylistSongs(playlist);
 
     _openPlaylistPage(
@@ -476,6 +550,10 @@ class _LibraryPageState extends State<LibraryPage> {
       playlistId: playlist.id,
     );
   }
+
+  // ============================================================
+  // PLAYLISTS
+  // ============================================================
 
   Future<void> _createPlaylist() async {
     await PlaylistDialogs.showCreatePlaylist(context);
@@ -591,6 +669,10 @@ class _LibraryPageState extends State<LibraryPage> {
     await _playlistsRepository.renamePlaylist(playlist.id, trimmedName);
   }
 
+  // ============================================================
+  // FAVORITES
+  // ============================================================
+
   void _toggleReorderingFavorites() {
     setState(() {
       _isReorderingFavorites = !_isReorderingFavorites;
@@ -604,6 +686,7 @@ class _LibraryPageState extends State<LibraryPage> {
       }
 
       final mutableList = List<Song>.from(_favoriteSongs);
+
       final item = mutableList.removeAt(oldIndex);
 
       mutableList.insert(newIndex, item);
@@ -636,6 +719,7 @@ class _LibraryPageState extends State<LibraryPage> {
     }
 
     final playerController = context.read<PlayerController>();
+
     final hasQueue = playerController.queue.isNotEmpty;
 
     if (hasQueue) {
@@ -693,6 +777,10 @@ class _LibraryPageState extends State<LibraryPage> {
         return l10n.favorites;
     }
   }
+
+  // ============================================================
+  // BUILD
+  // ============================================================
 
   @override
   Widget build(BuildContext context) {
@@ -893,6 +981,7 @@ class _LibraryPageState extends State<LibraryPage> {
             addRepaintBoundaries: true,
             itemBuilder: (context, index) {
               final playlist = _playlists[index];
+
               final songs = _resolvePlaylistSongs(playlist);
 
               return _PlaylistListTile(
@@ -913,6 +1002,10 @@ class _LibraryPageState extends State<LibraryPage> {
     );
   }
 }
+
+// ============================================================
+// HEADER
+// ============================================================
 
 class _LibraryHeader extends StatelessWidget {
   final LibraryCategory selectedCategory;
@@ -1041,6 +1134,10 @@ class _LibraryCategoryButton extends StatelessWidget {
   }
 }
 
+// ============================================================
+// EMPTY STATES
+// ============================================================
+
 class _EmptyLibraryState extends StatelessWidget {
   final bool isScanning;
   final VoidCallback onScan;
@@ -1122,6 +1219,10 @@ class _EmptyFavoritesState extends StatelessWidget {
     );
   }
 }
+
+// ============================================================
+// SONGS
+// ============================================================
 
 class _SongsSliverList extends StatelessWidget {
   final List<Song> songs;
@@ -1362,6 +1463,10 @@ class _SongsHeader extends StatelessWidget {
   }
 }
 
+// ============================================================
+// SONG TILE
+// ============================================================
+
 class _SongListTile extends StatelessWidget {
   final Song song;
   final bool isReorderable;
@@ -1376,9 +1481,11 @@ class _SongListTile extends StatelessWidget {
 
   Future<void> _handleSongTap(BuildContext context) async {
     final l10n = AppLocalizations.of(context)!;
+
     final playerController = context.read<PlayerController>();
 
     final queue = playerController.queue;
+
     final isCurrentSong = playerController.currentSong?.id == song.id;
 
     if (queue.isEmpty) {
@@ -1464,23 +1571,17 @@ class _SongListTile extends StatelessWidget {
     final hasArtist = artist.isNotEmpty;
 
     // ==========================================================
-    // FIX ARTWORK:
+    // ARTWORK REACTIVO
     //
-    // Antes solo escuchábamos:
+    // Se escuchan tanto coverPath como coverBytes.
     //
-    //   bool isCurrentSong
-    //
-    // Entonces, si la canción seguía siendo la actual:
-    //
-    //   true -> true
-    //
-    // Selector consideraba que NO había cambiado nada.
-    //
-    // Ahora también escuchamos coverPath.
+    // Si la canción actual tiene una portada nueva en memoria,
+    // se utiliza esa portada inmediatamente.
     // ==========================================================
+
     return Selector<
       PlayerController,
-      ({bool isCurrentSong, String? coverPath})
+      ({bool isCurrentSong, String? coverPath, Uint8List? coverBytes})
     >(
       selector: (_, controller) {
         final currentSong = controller.currentSong;
@@ -1491,7 +1592,15 @@ class _SongListTile extends StatelessWidget {
             ? currentSong?.coverPath
             : song.coverPath;
 
-        return (isCurrentSong: isCurrentSong, coverPath: effectiveCoverPath);
+        final effectiveCoverBytes = isCurrentSong
+            ? currentSong?.coverBytes
+            : song.coverBytes;
+
+        return (
+          isCurrentSong: isCurrentSong,
+          coverPath: effectiveCoverPath,
+          coverBytes: effectiveCoverBytes,
+        );
       },
       builder: (context, state, _) {
         final theme = Theme.of(context);
@@ -1508,11 +1617,13 @@ class _SongListTile extends StatelessWidget {
           contentPadding: const EdgeInsets.only(left: 12, right: 0),
 
           leading: _LibraryArtwork(
-            // FIX ARTWORK:
-            // Cambia la identidad del widget cuando la carátula
-            // pasa de existente -> null.
-            key: ValueKey('${song.id}_${state.coverPath ?? 'no_cover'}'),
+            key: ValueKey(
+              '${song.id}_'
+              '${state.coverPath ?? 'no_path'}_'
+              '${state.coverBytes?.hashCode ?? 0}',
+            ),
             coverPath: state.coverPath,
+            coverBytes: state.coverBytes,
             size: 40,
             borderRadius: 6,
             isPlaying: state.isCurrentSong,
@@ -1572,6 +1683,10 @@ class _SongListTile extends StatelessWidget {
 }
 
 enum _SongTapAction { replaceQueue, addToQueue, removeFromQueue, cancel }
+
+// ============================================================
+// PLAYLISTS
+// ============================================================
 
 class _PlaylistsHeader extends StatelessWidget {
   final int playlistCount;
@@ -1742,20 +1857,32 @@ class _PlaylistListTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    final coverPath = songs.isNotEmpty ? songs.first.coverPath : null;
+    final firstSong = songs.isNotEmpty ? songs.first : null;
+
+    final coverPath = firstSong?.coverPath;
+    final coverBytes = firstSong?.coverBytes;
 
     return ListTile(
       contentPadding: EdgeInsets.zero,
       minVerticalPadding: 12,
+
       leading: _LibraryArtwork(
-        key: ValueKey('${playlist.id}_${coverPath ?? 'no_cover'}'),
+        key: ValueKey(
+          '${playlist.id}_'
+          '${coverPath ?? 'no_cover'}_'
+          '${coverBytes?.hashCode ?? 0}',
+        ),
         coverPath: coverPath,
+        coverBytes: coverBytes,
         size: 40,
         borderRadius: 6,
         fallbackIcon: Icons.playlist_play,
       ),
+
       title: Text(playlist.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+
       subtitle: Text(l10n.songCount(songs.length)),
+
       trailing: IconButton(
         onPressed: () {
           _showPlaylistMenu(context);
@@ -1763,13 +1890,19 @@ class _PlaylistListTile extends StatelessWidget {
         icon: const Icon(Icons.more_vert),
         tooltip: l10n.options,
       ),
+
       onTap: onTap,
+
       onLongPress: () {
         _showPlaylistMenu(context);
       },
     );
   }
 }
+
+// ============================================================
+// ALBUM
+// ============================================================
 
 class _AlbumListTile extends StatelessWidget {
   final Album album;
@@ -1787,11 +1920,13 @@ class _AlbumListTile extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
 
     final artist = album.artist;
+
     final hasArtist = artist != null && artist.trim().isNotEmpty;
 
-    final coverPath = album.songs.isNotEmpty
-        ? album.songs.first.coverPath
-        : null;
+    final firstSong = album.songs.isNotEmpty ? album.songs.first : null;
+
+    final coverPath = firstSong?.coverPath;
+    final coverBytes = firstSong?.coverBytes;
 
     final displayArtist = hasArtist
         ? (artist == _unknownArtistKey ? l10n.unknownArtist : artist!)
@@ -1800,14 +1935,22 @@ class _AlbumListTile extends StatelessWidget {
     return ListTile(
       contentPadding: EdgeInsets.zero,
       minVerticalPadding: 12,
+
       leading: _LibraryArtwork(
-        key: ValueKey('${album.name}_${coverPath ?? 'no_cover'}'),
+        key: ValueKey(
+          '${album.name}_'
+          '${coverPath ?? 'no_cover'}_'
+          '${coverBytes?.hashCode ?? 0}',
+        ),
         coverPath: coverPath,
+        coverBytes: coverBytes,
         size: 40,
         borderRadius: 6,
         fallbackIcon: Icons.album_outlined,
       ),
+
       title: Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
+
       subtitle: displayArtist != null
           ? Column(
               mainAxisSize: MainAxisSize.min,
@@ -1822,14 +1965,20 @@ class _AlbumListTile extends StatelessWidget {
               ],
             )
           : Text(l10n.songCount(album.songCount)),
+
       trailing: const SizedBox(
         width: 40,
         child: Center(child: Icon(Icons.chevron_right)),
       ),
+
       onTap: onTap,
     );
   }
 }
+
+// ============================================================
+// ARTIST
+// ============================================================
 
 class _ArtistListTile extends StatelessWidget {
   final Artist artist;
@@ -1846,44 +1995,69 @@ class _ArtistListTile extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    final coverPath = artist.songs.isNotEmpty
-        ? artist.songs.first.coverPath
-        : null;
+    final firstSong = artist.songs.isNotEmpty ? artist.songs.first : null;
+
+    final coverPath = firstSong?.coverPath;
+    final coverBytes = firstSong?.coverBytes;
 
     return ListTile(
       contentPadding: EdgeInsets.zero,
       minVerticalPadding: 12,
+
       leading: _LibraryArtwork(
-        key: ValueKey('${artist.name}_${coverPath ?? 'no_cover'}'),
+        key: ValueKey(
+          '${artist.name}_'
+          '${coverPath ?? 'no_cover'}_'
+          '${coverBytes?.hashCode ?? 0}',
+        ),
         coverPath: coverPath,
+        coverBytes: coverBytes,
         size: 40,
         borderRadius: 6,
         fallbackIcon: Icons.person_outline,
       ),
+
       title: Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
+
       subtitle: Text(l10n.songCount(artist.songCount)),
+
       trailing: const SizedBox(
         width: 40,
         child: Center(child: Icon(Icons.chevron_right)),
       ),
+
       onTap: onTap,
     );
   }
 }
 
+// ============================================================
+// LIBRARY ARTWORK
+// ============================================================
+
 class _LibraryArtwork extends StatelessWidget {
   final String? coverPath;
+
+  // ==========================================================
+  // IMPORTANTE:
+  //
+  // coverBytes tiene prioridad sobre coverPath.
+  //
+  // Esto permite mostrar inmediatamente la portada recién
+  // seleccionada sin tener que volver a escanear el MP3.
+  // ==========================================================
+
+  final Uint8List? coverBytes;
+
   final double size;
   final double borderRadius;
   final IconData fallbackIcon;
   final bool isPlaying;
 
   const _LibraryArtwork({
-    // FIX ARTWORK:
-    // Necesario para que podamos cambiar la identidad
-    // del artwork cuando coverPath cambia.
     super.key,
     required this.coverPath,
+    required this.coverBytes,
     required this.size,
     required this.borderRadius,
     this.fallbackIcon = Icons.music_note,
@@ -1892,11 +2066,51 @@ class _LibraryArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    // ==========================================================
+    // 1. BYTES DE LA CARÁTULA
+    // ==========================================================
+
+    final bytes = coverBytes;
+
+    if (bytes != null && bytes.isNotEmpty) {
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(borderRadius),
+            child: Image.memory(
+              bytes,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              cacheWidth: 128,
+              cacheHeight: 128,
+              filterQuality: FilterQuality.low,
+              gaplessPlayback: true,
+              errorBuilder: (context, error, stackTrace) {
+                return _buildFallback(context);
+              },
+            ),
+          ),
+          if (isPlaying)
+            _PlayingOverlay(size: size, borderRadius: borderRadius),
+        ],
+      );
+    }
+
+    // ==========================================================
+    // 2. COVER PATH
+    // ==========================================================
+
     final path = coverPath;
 
     if (path == null || path.isEmpty) {
       return _buildFallback(context);
     }
+
+    // ==========================================================
+    // ANDROID CONTENT URI
+    // ==========================================================
 
     if (path.startsWith('content://')) {
       return _AndroidLibraryArtwork(
@@ -1908,6 +2122,10 @@ class _LibraryArtwork extends StatelessWidget {
         isPlaying: isPlaying,
       );
     }
+
+    // ==========================================================
+    // NETWORK
+    // ==========================================================
 
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return Stack(
@@ -1933,6 +2151,10 @@ class _LibraryArtwork extends StatelessWidget {
         ],
       );
     }
+
+    // ==========================================================
+    // LOCAL FILE
+    // ==========================================================
 
     return Stack(
       alignment: Alignment.center,
@@ -1976,6 +2198,10 @@ class _LibraryArtwork extends StatelessWidget {
     );
   }
 }
+
+// ============================================================
+// ANDROID CONTENT URI ARTWORK
+// ============================================================
 
 class _AndroidLibraryArtwork extends StatefulWidget {
   final String uri;
@@ -2034,6 +2260,7 @@ class _AndroidLibraryArtworkState extends State<_AndroidLibraryArtwork> {
           _loading = false;
         });
       }
+
       return;
     }
 
@@ -2147,6 +2374,10 @@ class _AndroidLibraryArtworkState extends State<_AndroidLibraryArtwork> {
   }
 }
 
+// ============================================================
+// PLAYING OVERLAY
+// ============================================================
+
 class _PlayingOverlay extends StatelessWidget {
   final double size;
   final double borderRadius;
@@ -2171,8 +2402,13 @@ class _PlayingOverlay extends StatelessWidget {
   }
 }
 
+// ============================================================
+// UTILS
+// ============================================================
+
 String _formatDuration(Duration duration) {
   final totalSeconds = duration.inSeconds;
+
   final minutes = totalSeconds ~/ 60;
   final seconds = totalSeconds % 60;
 

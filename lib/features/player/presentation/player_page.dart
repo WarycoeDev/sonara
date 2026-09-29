@@ -159,21 +159,19 @@ class _PlayerLayout extends StatelessWidget {
                         ),
                       );
                     },
-
-                    // IMPORTANTE:
-                    //
-                    // La key depende de song.id y coverPath.
-                    //
-                    // Cuando la carátula cambia o se elimina,
-                    // coverPath cambia y AnimatedSwitcher crea
-                    // un nuevo widget de artwork.
                     child: SizedBox(
                       key: ValueKey<String>(
-                        '${song.id}|${song.coverPath ?? ''}',
+                        '${song.id}|'
+                        '${song.coverPath ?? ''}|'
+                        '${song.fileSize}|'
+                        '${song.fileLastModified ?? 0}',
                       ),
                       width: artworkSize,
                       height: artworkSize,
-                      child: _AlbumArtwork(coverPath: song.coverPath),
+                      child: _AlbumArtwork(
+                        coverPath: song.coverPath,
+                        coverBytes: song.coverBytes,
+                      ),
                     ),
                   ),
                 ),
@@ -200,7 +198,9 @@ class _PlayerLayout extends StatelessWidget {
                   },
                   child: _SongInformation(
                     key: ValueKey<String>(
-                      '${song.id}|${song.title}|${song.artist ?? ''}',
+                      '${song.id}|'
+                      '${song.title}|'
+                      '${song.artist ?? ''}',
                     ),
                     title: song.title,
                     artist: song.artist,
@@ -234,11 +234,16 @@ class _PlayerLayout extends StatelessWidget {
 
 class _AlbumArtwork extends StatelessWidget {
   final String? coverPath;
+  final Uint8List? coverBytes;
 
-  const _AlbumArtwork({required this.coverPath});
+  const _AlbumArtwork({required this.coverPath, required this.coverBytes});
 
   Future<void> _showArtworkMenu(BuildContext context) async {
     final controller = context.read<PlayerController>();
+
+    if (Platform.isAndroid) {
+      await HapticFeedback.mediumImpact();
+    }
 
     await showModalBottomSheet<void>(
       context: context,
@@ -248,7 +253,9 @@ class _AlbumArtwork extends StatelessWidget {
         return _ArtworkMenu(
           sheetContext: sheetContext,
           controller: controller,
-          hasArtwork: coverPath != null && coverPath!.isNotEmpty,
+          hasArtwork:
+              (coverBytes != null && coverBytes!.isNotEmpty) ||
+              (coverPath != null && coverPath!.isNotEmpty),
         );
       },
     );
@@ -256,26 +263,28 @@ class _AlbumArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final path = coverPath;
-
     return GestureDetector(
       behavior: HitTestBehavior.opaque,
-
-      // Android / touch:
       onLongPress: () {
         _showArtworkMenu(context);
       },
-
-      // Linux / Windows / macOS:
       onSecondaryTap: () {
         _showArtworkMenu(context);
       },
-
-      child: _buildArtwork(context, path),
+      child: _buildArtwork(context),
     );
   }
 
-  Widget _buildArtwork(BuildContext context, String? path) {
+  Widget _buildArtwork(BuildContext context) {
+    final bytes = coverBytes;
+
+    // La portada recién cambiada tiene prioridad.
+    if (bytes != null && bytes.isNotEmpty) {
+      return _buildMemoryArtwork(context, bytes);
+    }
+
+    final path = coverPath;
+
     if (path == null || path.isEmpty) {
       return _buildDefaultArtwork(context);
     }
@@ -285,6 +294,26 @@ class _AlbumArtwork extends StatelessWidget {
     }
 
     return _buildFileArtwork(context, path);
+  }
+
+  Widget _buildMemoryArtwork(BuildContext context, Uint8List bytes) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Image.memory(
+          bytes,
+          width: double.infinity,
+          height: double.infinity,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.high,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) {
+            return const _DefaultArtwork();
+          },
+        ),
+      ),
+    );
   }
 
   Widget _buildFileArtwork(BuildContext context, String path) {
@@ -412,13 +441,30 @@ class _ArtworkMenu extends StatelessWidget {
           ListTile(
             leading: const Icon(Icons.image_outlined),
             title: const Text('Cambiar carátula'),
-            onTap: () {
+            onTap: () async {
               Navigator.of(sheetContext, rootNavigator: true).pop();
 
-              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
-                const SnackBar(
+              final result = await controller.changeCurrentArtwork();
+
+              if (!context.mounted) {
+                return;
+              }
+
+              final messenger = ScaffoldMessenger.maybeOf(context);
+
+              messenger?.hideCurrentSnackBar();
+
+              // null = usuario canceló el selector.
+              if (result == null) {
+                return;
+              }
+
+              messenger?.showSnackBar(
+                SnackBar(
                   content: Text(
-                    'Cambiar carátula estará disponible próximamente.',
+                    result
+                        ? 'Carátula cambiada correctamente.'
+                        : 'No se pudo cambiar la carátula.',
                   ),
                 ),
               );
@@ -979,9 +1025,7 @@ class _ProgressSectionState extends State<_ProgressSection> {
     }
 
     final totalSeconds = duration.inSeconds;
-
     final minutes = totalSeconds ~/ 60;
-
     final seconds = totalSeconds % 60;
 
     return '$minutes:${seconds.toString().padLeft(2, '0')}';
@@ -1392,6 +1436,7 @@ class _QueueItem extends StatelessWidget {
       child: ListTile(
         leading: _QueueArtwork(
           coverPath: song.coverPath,
+          coverBytes: song.coverBytes,
           isCurrent: isCurrent,
           size: 40,
           borderRadius: 6,
@@ -1433,12 +1478,14 @@ class _QueueItem extends StatelessWidget {
 
 class _QueueArtwork extends StatelessWidget {
   final String? coverPath;
+  final Uint8List? coverBytes;
   final bool isCurrent;
   final double size;
   final double borderRadius;
 
   const _QueueArtwork({
     required this.coverPath,
+    required this.coverBytes,
     required this.isCurrent,
     required this.size,
     required this.borderRadius,
@@ -1446,6 +1493,36 @@ class _QueueArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bytes = coverBytes;
+
+    // La portada nueva tiene prioridad.
+    if (bytes != null && bytes.isNotEmpty) {
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(borderRadius),
+            child: Image.memory(
+              bytes,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              cacheWidth: 128,
+              cacheHeight: 128,
+              filterQuality: FilterQuality.low,
+              gaplessPlayback: true,
+              errorBuilder: (context, error, stackTrace) {
+                return _buildFallback(context);
+              },
+            ),
+          ),
+
+          if (isCurrent)
+            _QueuePlayingOverlay(size: size, borderRadius: borderRadius),
+        ],
+      );
+    }
+
     final path = coverPath;
 
     if (path == null || path.isEmpty) {
@@ -1554,6 +1631,7 @@ class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
     if (oldWidget.contentUri != widget.contentUri) {
       _bytes = null;
       _isLoading = true;
+
       _loadArtwork();
     }
   }

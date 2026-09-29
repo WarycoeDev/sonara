@@ -6,6 +6,8 @@ import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
 import 'package:sonara/features/library/data/repositories/local_library_repository.dart';
 
+import '../../../library/data/services/song_artwork_service.dart';
+
 import '../../../favorites/data/favorites_repository.dart';
 import '../../../library/domain/models/song.dart';
 import '../../../statistics/data/statistics_repository.dart';
@@ -22,6 +24,8 @@ class PlayerController extends ChangeNotifier {
   final FavoritesRepository _favoritesRepository = FavoritesRepository();
 
   final ArtworkFileService _artworkFileService = ArtworkFileService();
+
+  final SongArtworkService _songArtworkService = SongArtworkService();
 
   final Random _random = Random();
 
@@ -1245,6 +1249,84 @@ class PlayerController extends ChangeNotifier {
     }
 
     return file;
+  }
+
+  /// Cambia la carátula de la canción actualmente reproducida.
+  ///
+  /// Resultado:
+  ///
+  /// null  -> el usuario canceló el selector.
+  /// true  -> carátula cambiada correctamente.
+  /// false -> ocurrió un error.
+  Future<bool?> changeCurrentArtwork() async {
+    if (_isDisposed || _currentSong == null) {
+      return false;
+    }
+
+    final song = _currentSong!;
+
+    try {
+      final artworkBytes = await _songArtworkService.changeArtwork(
+        songPath: song.filePath,
+      );
+
+      // El usuario canceló el selector.
+      if (artworkBytes == null) {
+        return null;
+      }
+
+      // Obtenemos los nuevos datos físicos del MP3.
+      final audioFile = File(song.filePath);
+
+      if (!await audioFile.exists()) {
+        return false;
+      }
+
+      final stat = await audioFile.stat();
+
+      // Creamos una nueva instancia de Song.
+      //
+      // coverPath se conserva porque puede ser una ruta de cache,
+      // content://, etc.
+      //
+      // coverBytes recibe inmediatamente la nueva imagen para que
+      // la interfaz no tenga que esperar a que se vuelva a escanear
+      // toda la biblioteca.
+      final updatedSong = song.copyWith(
+        coverBytes: artworkBytes,
+        fileSize: stat.size,
+        fileLastModified: stat.modified.millisecondsSinceEpoch,
+      );
+
+      // Actualizamos la canción dentro de la cola.
+      _replaceSongInQueue(updatedSong);
+
+      // Actualizamos la canción actual.
+      _currentSong = updatedSong;
+
+      // Mantener el índice actual apuntando a la instancia nueva.
+      if (_currentIndex >= 0 &&
+          _currentIndex < _queue.length &&
+          _queue[_currentIndex].id == updatedSong.id) {
+        _currentSong = _queue[_currentIndex];
+      }
+
+      // Esto NO reinicia el audio.
+      // Solamente hace que PlayerPage, LibraryPage, Queue, etc.
+      // reciban el nuevo Song.
+      _notify();
+
+      return true;
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[SONARA PLAYER ARTWORK] '
+        'Error cambiando carátula: $error',
+      );
+
+      debugPrintStack(stackTrace: stackTrace);
+
+      return false;
+    }
   }
 
   /// Guarda la carátula actual usando FilePicker.
