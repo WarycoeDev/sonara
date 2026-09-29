@@ -92,6 +92,8 @@ class _AppShellState extends State<AppShell>
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     final showMiniPlayer = _selectedIndex != 3;
     final movingForward = _selectedIndex > _previousIndex;
@@ -112,6 +114,9 @@ class _AppShellState extends State<AppShell>
         }
       },
       child: Scaffold(
+        // ---------------------------------------------------------
+        // APP BAR ORIGINAL
+        // ---------------------------------------------------------
         appBar: AppBar(
           toolbarHeight: 76,
           backgroundColor: Theme.of(context).scaffoldBackgroundColor,
@@ -126,6 +131,10 @@ class _AppShellState extends State<AppShell>
                 ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.8),
           ),
         ),
+
+        // ---------------------------------------------------------
+        // CONTENIDO
+        // ---------------------------------------------------------
         body: Column(
           children: [
             Expanded(
@@ -148,33 +157,66 @@ class _AppShellState extends State<AppShell>
                 },
               ),
             ),
+
             if (showMiniPlayer) const MiniPlayer(),
           ],
         ),
-        bottomNavigationBar: NavigationBar(
-          selectedIndex: _selectedIndex,
-          onDestinationSelected: _onDestinationSelected,
-          destinations: [
-            NavigationDestination(
-              icon: const Icon(Icons.home_outlined),
-              selectedIcon: const Icon(Icons.home),
-              label: l10n.home,
+
+        // ---------------------------------------------------------
+        // BARRA DE NAVEGACIÓN FLOTANTE
+        // ---------------------------------------------------------
+        bottomNavigationBar: SafeArea(
+          top: false,
+          minimum: const EdgeInsets.fromLTRB(12, 4, 12, 10),
+          child: Material(
+            color: colorScheme.surfaceContainer,
+            borderRadius: BorderRadius.circular(28),
+            clipBehavior: Clip.antiAlias,
+            child: NavigationBar(
+              height: 72,
+              selectedIndex: _selectedIndex,
+              onDestinationSelected: _onDestinationSelected,
+
+              backgroundColor: Colors.transparent,
+              surfaceTintColor: Colors.transparent,
+              shadowColor: Colors.transparent,
+              elevation: 0,
+
+              indicatorColor: colorScheme.primaryContainer,
+
+              indicatorShape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(20),
+              ),
+
+              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+
+              destinations: [
+                NavigationDestination(
+                  icon: const Icon(Icons.home_outlined, size: 24),
+                  selectedIcon: const Icon(Icons.home_rounded, size: 24),
+                  label: l10n.home,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.library_music_outlined, size: 24),
+                  selectedIcon: const Icon(
+                    Icons.library_music_rounded,
+                    size: 24,
+                  ),
+                  label: l10n.library,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.search_rounded, size: 24),
+                  selectedIcon: const Icon(Icons.search_rounded, size: 24),
+                  label: l10n.search,
+                ),
+                NavigationDestination(
+                  icon: const Icon(Icons.settings_outlined, size: 24),
+                  selectedIcon: const Icon(Icons.settings_rounded, size: 24),
+                  label: l10n.settings,
+                ),
+              ],
             ),
-            NavigationDestination(
-              icon: const Icon(Icons.library_music_outlined),
-              selectedIcon: const Icon(Icons.library_music),
-              label: l10n.library,
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.search),
-              label: l10n.search,
-            ),
-            NavigationDestination(
-              icon: const Icon(Icons.settings_outlined),
-              selectedIcon: const Icon(Icons.settings),
-              label: l10n.settings,
-            ),
-          ],
+          ),
         ),
       ),
     );

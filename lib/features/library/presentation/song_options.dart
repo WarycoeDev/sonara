@@ -14,7 +14,7 @@ import '../domain/models/playlist.dart';
 import '../domain/models/song.dart';
 import 'playlist_dialogs.dart';
 
-enum _SongOptionAction { addToPlaylist }
+enum _SongOptionAction { favorite, queue, addToPlaylist }
 
 enum _PlaylistPreviewResult { add, remove, backToPlaylistSelector }
 
@@ -28,7 +28,16 @@ class SongOptions {
   static final LocalLibraryRepository _libraryRepository =
       LocalLibraryRepository();
 
-  static Future<void> show(BuildContext context, Song song) async {
+  /// Muestra el menú de opciones de la canción anclado al elemento que
+  /// lo abrió.
+  ///
+  /// [anchorContext] debe ser el BuildContext del botón/icono que dispara
+  /// el menú. Si no se proporciona, se utiliza [context] como referencia.
+  static Future<void> show(
+    BuildContext context,
+    Song song, {
+    BuildContext? anchorContext,
+  }) async {
     await Future.wait([
       _favoritesRepository.initialize(),
       _playlistsRepository.initialize(),
@@ -40,96 +49,117 @@ class SongOptions {
 
     final playerController = context.read<PlayerController>();
 
-    final action = await showModalBottomSheet<_SongOptionAction>(
+    final action = await _showAnchoredMenu(
       context: context,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return AnimatedBuilder(
-          animation: Listenable.merge([
-            _favoritesRepository,
-            _playlistsRepository,
-            playerController,
-          ]),
-          builder: (context, child) {
-            final l10n = AppLocalizations.of(context)!;
-
-            final isFavorite = _favoritesRepository.isFavorite(song.id);
-
-            final isInQueue = playerController.isInQueue(song.id);
-
-            final isCurrentSong = playerController.currentSong?.id == song.id;
-
-            return SafeArea(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ListTile(
-                    leading: Icon(
-                      isFavorite ? Icons.favorite : Icons.favorite_border,
-                    ),
-                    title: Text(
-                      isFavorite
-                          ? l10n.removeFromFavorites
-                          : l10n.addToFavorites,
-                    ),
-                    onTap: () async {
-                      await _favoritesRepository.toggleFavorite(song.id);
-
-                      if (!sheetContext.mounted) {
-                        return;
-                      }
-
-                      Navigator.of(sheetContext).pop();
-                    },
-                  ),
-                  ListTile(
-                    leading: Icon(
-                      isInQueue ? Icons.remove_from_queue : Icons.queue_music,
-                    ),
-                    title: Text(
-                      isInQueue ? l10n.removeFromQueue : l10n.addToQueue,
-                    ),
-                    enabled: !isCurrentSong,
-                    onTap: isCurrentSong
-                        ? null
-                        : () async {
-                            if (isInQueue) {
-                              playerController.removeFromQueue(song);
-                            } else {
-                              await playerController.addToQueue(song);
-                            }
-
-                            if (!sheetContext.mounted) {
-                              return;
-                            }
-
-                            Navigator.of(sheetContext).pop();
-                          },
-                  ),
-                  ListTile(
-                    leading: const Icon(Icons.playlist_add),
-                    title: Text(l10n.addToPlaylist),
-                    onTap: () {
-                      Navigator.of(sheetContext)
-                          .pop(_SongOptionAction.addToPlaylist);
-                    },
-                  ),
-                  const SizedBox(height: 8),
-                ],
-              ),
-            );
-          },
-        );
-      },
+      anchorContext: anchorContext ?? context,
+      song: song,
+      playerController: playerController,
     );
 
-    if (!context.mounted) {
+    if (!context.mounted || action == null) {
       return;
     }
 
-    if (action == _SongOptionAction.addToPlaylist) {
-      await _showAddToPlaylist(context, song);
+    switch (action) {
+      case _SongOptionAction.favorite:
+        await _favoritesRepository.toggleFavorite(song.id);
+        break;
+
+      case _SongOptionAction.queue:
+        final isInQueue = playerController.isInQueue(song.id);
+        final isCurrentSong = playerController.currentSong?.id == song.id;
+
+        if (isCurrentSong) {
+          return;
+        }
+
+        if (isInQueue) {
+          playerController.removeFromQueue(song);
+        } else {
+          await playerController.addToQueue(song);
+        }
+        break;
+
+      case _SongOptionAction.addToPlaylist:
+        await _showAddToPlaylist(context, song);
+        break;
     }
+  }
+
+  static Future<_SongOptionAction?> _showAnchoredMenu({
+    required BuildContext context,
+    required BuildContext anchorContext,
+    required Song song,
+    required PlayerController playerController,
+  }) async {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    final isFavorite = _favoritesRepository.isFavorite(song.id);
+    final isInQueue = playerController.isInQueue(song.id);
+    final isCurrentSong = playerController.currentSong?.id == song.id;
+
+    final buttonRenderObject = anchorContext.findRenderObject();
+
+    if (buttonRenderObject is! RenderBox) {
+      return null;
+    }
+
+    final overlayRenderObject = Overlay.of(context).context.findRenderObject();
+
+    if (overlayRenderObject is! RenderBox) {
+      return null;
+    }
+
+    final buttonTopLeft = buttonRenderObject.localToGlobal(
+      Offset.zero,
+      ancestor: overlayRenderObject,
+    );
+
+    final buttonRect = buttonTopLeft & buttonRenderObject.size;
+    final overlaySize = overlayRenderObject.size;
+
+    final position = RelativeRect.fromLTRB(
+      buttonRect.right - 8,
+      buttonRect.bottom + 4,
+      overlaySize.width - buttonRect.right + 8,
+      overlaySize.height - buttonRect.bottom,
+    );
+
+    return showMenu<_SongOptionAction>(
+      context: context,
+      position: position,
+      elevation: 4,
+      color: colorScheme.surfaceContainer,
+      shadowColor: Colors.black.withOpacity(0.18),
+      surfaceTintColor: Colors.transparent,
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(20),
+        side: BorderSide(color: colorScheme.outlineVariant.withOpacity(0.45)),
+      ),
+      items: [
+        _SongOptionPopupItem(
+          value: _SongOptionAction.favorite,
+          icon: isFavorite ? Icons.favorite : Icons.favorite_border,
+          label: isFavorite ? l10n.removeFromFavorites : l10n.addToFavorites,
+        ),
+
+        _SongOptionPopupItem(
+          value: _SongOptionAction.queue,
+          icon: isInQueue ? Icons.remove_from_queue : Icons.queue_music,
+          label: isInQueue ? l10n.removeFromQueue : l10n.addToQueue,
+          enabled: !isCurrentSong,
+        ),
+
+        _SongOptionPopupItem(
+          value: _SongOptionAction.addToPlaylist,
+          icon: Icons.playlist_add,
+          label: l10n.addToPlaylist,
+        ),
+      ],
+    );
   }
 
   static Future<void> _showAddToPlaylist(
@@ -219,22 +249,54 @@ class SongOptions {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (sheetContext) {
+        final theme = Theme.of(sheetContext);
+        final colorScheme = theme.colorScheme;
         final l10n = AppLocalizations.of(sheetContext)!;
 
         return SafeArea(
-          child: SizedBox(
+          child: Container(
             height: MediaQuery.sizeOf(sheetContext).height * 0.65,
+            margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+            decoration: BoxDecoration(
+              color: colorScheme.surfaceContainer,
+              borderRadius: BorderRadius.circular(28),
+              border: Border.all(
+                color: colorScheme.outlineVariant.withOpacity(0.45),
+              ),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(0.12),
+                  blurRadius: 24,
+                  offset: const Offset(0, 8),
+                ),
+              ],
+            ),
+            clipBehavior: Clip.antiAlias,
             child: Column(
               children: [
-                ListTile(
-                  title: Text(
-                    l10n.addToPlaylist,
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          l10n.addToPlaylist,
+                          style: theme.textTheme.titleLarge?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
                 Expanded(
                   child: ListView.builder(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 4,
+                    ),
                     itemCount: playlists.length,
                     itemBuilder: (context, index) {
                       final playlist = playlists[index];
@@ -245,10 +307,13 @@ class SongOptions {
                       );
 
                       return ListTile(
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(18),
+                        ),
                         leading: _SongArtwork(
                           coverPath: playlistArtwork,
                           size: 52,
-                          borderRadius: 8,
+                          borderRadius: 14,
                         ),
                         title: Text(
                           playlist.name,
@@ -263,27 +328,31 @@ class SongOptions {
                     },
                   ),
                 ),
-                const Divider(height: 1),
-                ListTile(
-                  leading: const Icon(Icons.add),
-                  title: Text(l10n.newPlaylist),
-                  onTap: () async {
-                    Navigator.of(sheetContext).pop();
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: FilledButton.icon(
+                      onPressed: () async {
+                        Navigator.of(sheetContext).pop();
 
-                    if (!context.mounted) {
-                      return;
-                    }
+                        if (!context.mounted) {
+                          return;
+                        }
 
-                    final playlist = await PlaylistDialogs.showCreatePlaylist(
-                      context,
-                    );
+                        final playlist =
+                            await PlaylistDialogs.showCreatePlaylist(context);
 
-                    if (!context.mounted || playlist == null) {
-                      return;
-                    }
+                        if (!context.mounted || playlist == null) {
+                          return;
+                        }
 
-                    await _showAddToPlaylist(context, song);
-                  },
+                        await _showAddToPlaylist(context, song);
+                      },
+                      icon: const Icon(Icons.add),
+                      label: Text(l10n.newPlaylist),
+                    ),
+                  ),
                 ),
               ],
             ),
@@ -303,6 +372,7 @@ class SongOptions {
       context: context,
       showDragHandle: true,
       isScrollControlled: true,
+      backgroundColor: Colors.transparent,
       builder: (sheetContext) {
         return _PlaylistPreviewSheet(
           song: song,
@@ -342,6 +412,84 @@ class SongOptions {
     }
 
     return null;
+  }
+}
+
+/// Opción personalizada del menú.
+///
+/// Se utiliza para controlar el ripple y evitar que el efecto rectangular
+/// de PopupMenuItem sobresalga del menú.
+class _SongOptionPopupItem extends PopupMenuEntry<_SongOptionAction> {
+  final _SongOptionAction value;
+  final IconData icon;
+  final String label;
+  final bool enabled;
+
+  const _SongOptionPopupItem({
+    required this.value,
+    required this.icon,
+    required this.label,
+    this.enabled = true,
+  });
+
+  @override
+  double get height => 52;
+
+  @override
+  bool represents(_SongOptionAction? value) {
+    return value == this.value;
+  }
+
+  @override
+  State<_SongOptionPopupItem> createState() => _SongOptionPopupItemState();
+}
+
+class _SongOptionPopupItemState extends State<_SongOptionPopupItem> {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    final foregroundColor = widget.enabled
+        ? colorScheme.onSurface
+        : colorScheme.onSurface.withOpacity(0.38);
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: widget.enabled
+              ? () {
+                  Navigator.of(context).pop(widget.value);
+                }
+              : null,
+          child: SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Icon(widget.icon, color: foregroundColor),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      widget.label,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: foregroundColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
   }
 }
 
@@ -475,13 +623,20 @@ class _PlaylistPreviewSheetState extends State<_PlaylistPreviewSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     final playlist = _playlistsRepository.getPlaylist(widget.playlistId);
 
     if (playlist == null) {
       return SafeArea(
-        child: SizedBox(
+        child: Container(
           height: MediaQuery.sizeOf(context).height * 0.75,
+          margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainer,
+            borderRadius: BorderRadius.circular(28),
+          ),
           child: Center(child: Text(l10n.playlistDoesNotExist)),
         ),
       );
@@ -490,30 +645,51 @@ class _PlaylistPreviewSheetState extends State<_PlaylistPreviewSheet> {
     final alreadyAdded = playlist.songIds.contains(widget.song.id);
 
     return SafeArea(
-      child: SizedBox(
+      child: Container(
         height: MediaQuery.sizeOf(context).height * 0.75,
+        margin: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+        decoration: BoxDecoration(
+          color: colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(28),
+          border: Border.all(
+            color: colorScheme.outlineVariant.withOpacity(0.45),
+          ),
+          boxShadow: [
+            BoxShadow(
+              color: Colors.black.withOpacity(0.12),
+              blurRadius: 24,
+              offset: const Offset(0, 8),
+            ),
+          ],
+        ),
+        clipBehavior: Clip.antiAlias,
         child: Column(
           children: [
-            ListTile(
-              title: Text(
-                playlist.name,
-                style: const TextStyle(fontWeight: FontWeight.w600),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 10, 12, 8),
+              child: ListTile(
+                contentPadding: EdgeInsets.zero,
+                title: Text(
+                  playlist.name,
+                  style: const TextStyle(fontWeight: FontWeight.w700),
+                ),
+                subtitle: Text(l10n.songCount(_playlistSongs.length)),
+                trailing: _playlistSongs.isNotEmpty
+                    ? IconButton(
+                        onPressed: _toggleReordering,
+                        icon: Icon(_isReordering ? Icons.check : Icons.reorder),
+                        tooltip: _isReordering
+                            ? l10n.saveOrder
+                            : l10n.changeOrder,
+                      )
+                    : null,
               ),
-              subtitle: Text(l10n.songCount(_playlistSongs.length)),
-              trailing: _playlistSongs.isNotEmpty
-                  ? IconButton(
-                      onPressed: _toggleReordering,
-                      icon: Icon(_isReordering ? Icons.check : Icons.reorder),
-                      tooltip: _isReordering
-                          ? l10n.saveOrder
-                          : l10n.changeOrder,
-                    )
-                  : null,
             ),
             Expanded(
               child: _playlistSongs.isEmpty
                   ? Center(child: Text(l10n.playlistIsEmpty))
                   : ReorderableListView.builder(
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
                       buildDefaultDragHandles: false,
                       itemCount: _playlistSongs.length,
                       onReorder: _reorderSongs,
@@ -521,10 +697,13 @@ class _PlaylistPreviewSheetState extends State<_PlaylistPreviewSheet> {
                         final playlistSong = _playlistSongs[index];
 
                         Widget songTile = ListTile(
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(18),
+                          ),
                           leading: _SongArtwork(
                             coverPath: playlistSong.coverPath,
                             size: 52,
-                            borderRadius: 8,
+                            borderRadius: 14,
                           ),
                           title: Text(
                             playlistSong.title,
@@ -555,6 +734,7 @@ class _PlaylistPreviewSheetState extends State<_PlaylistPreviewSheet> {
                             key: ValueKey(
                               '${widget.playlistId}_${playlistSong.id}',
                             ),
+                            color: Colors.transparent,
                             child: songTile,
                           );
                         }
@@ -567,10 +747,13 @@ class _PlaylistPreviewSheetState extends State<_PlaylistPreviewSheet> {
                           background: Container(
                             alignment: Alignment.centerLeft,
                             padding: const EdgeInsets.symmetric(horizontal: 24),
-                            color: Theme.of(context).colorScheme.error,
+                            decoration: BoxDecoration(
+                              color: colorScheme.error,
+                              borderRadius: BorderRadius.circular(18),
+                            ),
                             child: Icon(
                               Icons.remove_circle_outline,
-                              color: Theme.of(context).colorScheme.onError,
+                              color: colorScheme.onError,
                             ),
                           ),
                           confirmDismiss: (_) async {
@@ -613,9 +796,8 @@ class _PlaylistPreviewSheetState extends State<_PlaylistPreviewSheet> {
                       },
                     ),
             ),
-            const Divider(height: 1),
             Padding(
-              padding: const EdgeInsets.all(12),
+              padding: const EdgeInsets.fromLTRB(12, 8, 12, 12),
               child: SizedBox(
                 width: double.infinity,
                 child: FilledButton.icon(

@@ -12,8 +12,6 @@ import '../data/repositories/playlists_repository.dart';
 import '../domain/models/song.dart';
 import 'song_options.dart';
 
-const double _kSongTileExtent = 62.0;
-
 /// Caché global para las portadas obtenidas mediante content://
 class _ArtworkMemoryCache {
   _ArtworkMemoryCache._();
@@ -139,7 +137,6 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
   @override
   void dispose() {
     _playlistsRepository.removeListener(_handlePlaylistsChanged);
-
     _scrollController.dispose();
 
     super.dispose();
@@ -196,15 +193,10 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
 
     if (index == -1) return;
 
-    // Eliminamos inmediatamente de la lista visual.
-    //
-    // Esto es importante porque SliverAnimatedList necesita saber
-    // inmediatamente qué elemento debe desaparecer.
     setState(() {
       _songs.removeAt(index);
     });
 
-    // Animamos el cierre del espacio que ocupaba la canción.
     _animatedListKey.currentState?.removeItem(index, (context, animation) {
       return _buildAnimatedRemovedSong(song: song, animation: animation);
     }, duration: const Duration(milliseconds: 300));
@@ -214,8 +206,6 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
     } catch (_) {
       if (!mounted) return;
 
-      // Si la operación falló, restauramos la canción
-      // en su posición original.
       setState(() {
         if (index <= _songs.length) {
           _songs.insert(index, song);
@@ -251,14 +241,11 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
       axisAlignment: -1.0,
       child: FadeTransition(
         opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
-        child: SizedBox(
-          height: _kSongTileExtent,
-          child: _buildSongTile(
-            context,
-            song,
-            isReorderable: false,
-            showDivider: false,
-          ),
+        child: _buildSongTile(
+          context,
+          song,
+          isReorderable: false,
+          showDivider: false,
         ),
       ),
     );
@@ -439,14 +426,23 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
     return Dismissible(
       key: ValueKey('dismiss_${song.id}'),
       direction: DismissDirection.startToEnd,
-      background: Container(
-        alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        color: Theme.of(context).colorScheme.error,
-        child: Icon(
-          Icons.remove_circle_outline,
-          color: Theme.of(context).colorScheme.onError,
-        ),
+      background: Builder(
+        builder: (context) {
+          final colorScheme = Theme.of(context).colorScheme;
+
+          return Container(
+            alignment: Alignment.centerLeft,
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            decoration: BoxDecoration(
+              color: colorScheme.error,
+              borderRadius: BorderRadius.circular(20),
+            ),
+            child: Icon(
+              Icons.remove_circle_outline,
+              color: colorScheme.onError,
+            ),
+          );
+        },
       ),
       confirmDismiss: (_) async {
         final l10n = AppLocalizations.of(context)!;
@@ -478,10 +474,6 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
         return confirmed == true;
       },
       onDismissed: (_) {
-        // No esperamos el Future aquí.
-        //
-        // _removeSongFromPlaylist() elimina inmediatamente
-        // el elemento de _songs y después actualiza el repositorio.
         unawaited(_removeSongFromPlaylist(song));
       },
       child: child,
@@ -500,36 +492,24 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
       song: song,
       isReorderable: isReorderable,
       reorderIndex: reorderIndex,
+
+      // Toque normal: conserva el comportamiento de Songs.
+      // El long press y los 3 puntitos se manejan dentro de _SongListTile
+      // y abren exactamente el mismo menú.
       onTap: () async {
+        if (isReorderable) return;
+
         final controller = context.read<PlayerController>();
 
         await _playSong(controller, song);
       },
-      onLongPress: isReorderable ? null : () => SongOptions.show(context, song),
     );
 
     if (_canReorder && !isReorderable) {
       tile = _buildDismissibleSong(song: song, child: tile);
     }
 
-    return RepaintBoundary(
-      child: SizedBox(
-        height: _kSongTileExtent,
-        child: DecoratedBox(
-          decoration: showDivider
-              ? BoxDecoration(
-                  border: Border(
-                    bottom: BorderSide(
-                      color: Theme.of(context).dividerColor,
-                      width: 0.5,
-                    ),
-                  ),
-                )
-              : const BoxDecoration(),
-          child: tile,
-        ),
-      ),
-    );
+    return RepaintBoundary(child: tile);
   }
 
   @override
@@ -620,6 +600,7 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
                                     elevation: 6,
                                     shadowColor: Colors.black38,
                                     color: theme.scaffoldBackgroundColor,
+                                    borderRadius: BorderRadius.circular(20),
                                     child: child,
                                   );
                                 },
@@ -630,13 +611,12 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
 
                               return Container(
                                 key: ValueKey(song.id),
-                                height: _kSongTileExtent,
                                 child: _buildSongTile(
                                   context,
                                   song,
                                   isReorderable: true,
                                   reorderIndex: index,
-                                  showDivider: index != _songs.length - 1,
+                                  showDivider: false,
                                 ),
                               );
                             },
@@ -657,7 +637,7 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
                                   context,
                                   song,
                                   isReorderable: false,
-                                  showDivider: index != _songs.length - 1,
+                                  showDivider: false,
                                 ),
                               );
                             },
@@ -694,15 +674,6 @@ class _PlaylistHeader extends StatelessWidget {
             onPressed: onBack,
             icon: const Icon(Icons.arrow_back),
             tooltip: l10n.back,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: Theme.of(context).textTheme.titleLarge,
-            ),
           ),
         ],
       ),
@@ -790,7 +761,9 @@ class _PlaylistArtwork extends StatelessWidget {
         cacheHeight: 192,
         filterQuality: FilterQuality.low,
         gaplessPlayback: true,
-        errorBuilder: (_, __, ___) => _buildFallback(context),
+        errorBuilder: (_, __, ___) {
+          return _buildFallback(context);
+        },
       ),
     );
   }
@@ -810,12 +783,11 @@ class _PlaylistArtwork extends StatelessWidget {
   }
 }
 
-class _SongListTile extends StatelessWidget {
+class _SongListTile extends StatefulWidget {
   final Song song;
   final bool isReorderable;
   final int? reorderIndex;
   final VoidCallback onTap;
-  final VoidCallback? onLongPress;
 
   const _SongListTile({
     super.key,
@@ -823,68 +795,146 @@ class _SongListTile extends StatelessWidget {
     this.isReorderable = false,
     this.reorderIndex,
     required this.onTap,
-    this.onLongPress,
   });
 
   @override
+  State<_SongListTile> createState() => _SongListTileState();
+}
+
+class _SongListTileState extends State<_SongListTile> {
+  // Key del botón de los 3 puntitos, para anclar el menú a él
+  // tanto al tocar el botón como al mantener presionada la canción.
+  final GlobalKey _menuButtonKey = GlobalKey();
+
+  void _openOptions() {
+    if (widget.isReorderable) return;
+
+    SongOptions.show(
+      context,
+      widget.song,
+      anchorContext: _menuButtonKey.currentContext ?? context,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    final song = widget.song;
+    final isReorderable = widget.isReorderable;
+    final reorderIndex = widget.reorderIndex;
+
+    final artist = song.artist?.trim() ?? '';
+    final hasArtist = artist.isNotEmpty;
+
     return Selector<PlayerController, bool>(
       selector: (_, controller) => controller.currentSong?.id == song.id,
       shouldRebuild: (previous, next) => previous != next,
       builder: (context, isPlaying, _) {
-        final theme = Theme.of(context);
-        final artist = song.artist;
-        final hasArtist = artist != null && artist.isNotEmpty;
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: InkWell(
+            onTap: isReorderable ? null : widget.onTap,
 
-        return Center(
-          child: ListTile(
-            onTap: onTap,
-            onLongPress: onLongPress,
-            minVerticalPadding: 0,
-            visualDensity: VisualDensity.compact,
-            contentPadding: const EdgeInsets.only(left: 12, right: 0),
-            leading: _LibraryArtwork(
-              coverPath: song.coverPath,
-              size: 40,
-              borderRadius: 6,
-              isPlaying: isPlaying,
-            ),
-            title: Text(
-              song.title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: isPlaying
-                  ? theme.textTheme.bodyLarge?.copyWith(
-                      color: theme.colorScheme.primary,
-                      fontWeight: FontWeight.bold,
-                    )
-                  : null,
-            ),
-            subtitle: hasArtist
-                ? Text(artist, maxLines: 1, overflow: TextOverflow.ellipsis)
-                : null,
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.center,
-              children: [
-                if (!isReorderable) _SongTrailing(song: song),
-                if (isReorderable && reorderIndex != null)
-                  ReorderableDragStartListener(
-                    index: reorderIndex!,
-                    child: const Padding(
-                      padding: EdgeInsets.symmetric(
-                        horizontal: 16,
-                        vertical: 12,
-                      ),
-                      child: Icon(Icons.drag_handle),
+            // Mantener presionado abre el mismo menú que los 3 puntitos.
+            onLongPress: isReorderable ? null : _openOptions,
+
+            borderRadius: BorderRadius.circular(20),
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+              child: Row(
+                children: [
+                  _LibraryArtwork(
+                    coverPath: song.coverPath,
+                    size: 48,
+                    borderRadius: 14,
+                    isPlaying: isPlaying,
+                  ),
+
+                  const SizedBox(width: 12),
+
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: isPlaying ? colorScheme.primary : null,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          hasArtist ? artist : l10n.unknownArtist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-              ],
+
+                  const SizedBox(width: 8),
+
+                  if (!isReorderable) ...[
+                    Text(
+                      _formatDuration(song.duration),
+                      style: theme.textTheme.bodySmall?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+
+                    const SizedBox(width: 2),
+
+                    Material(
+                      key: _menuButtonKey,
+                      color: Colors.transparent,
+                      borderRadius: BorderRadius.circular(14),
+                      clipBehavior: Clip.antiAlias,
+                      child: InkWell(
+                        onTap: _openOptions,
+                        borderRadius: BorderRadius.circular(14),
+                        child: const SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: Icon(Icons.more_vert),
+                        ),
+                      ),
+                    ),
+                  ],
+
+                  if (isReorderable && reorderIndex != null)
+                    ReorderableDragStartListener(
+                      index: reorderIndex,
+                      child: const SizedBox(
+                        width: 44,
+                        height: 44,
+                        child: Center(child: Icon(Icons.drag_handle)),
+                      ),
+                    ),
+                ],
+              ),
             ),
           ),
         );
       },
     );
+  }
+
+  String _formatDuration(Duration duration) {
+    final totalSeconds = duration.inSeconds;
+    final minutes = totalSeconds ~/ 60;
+    final seconds = totalSeconds % 60;
+
+    return '$minutes:${seconds.toString().padLeft(2, '0')}';
   }
 }
 
@@ -935,7 +985,9 @@ class _LibraryArtwork extends StatelessWidget {
             cacheHeight: 96,
             filterQuality: FilterQuality.low,
             gaplessPlayback: true,
-            errorBuilder: (_, __, ___) => _buildFallback(context),
+            errorBuilder: (_, __, ___) {
+              return _buildFallback(context);
+            },
           ),
         ),
         if (isPlaying) _PlayingOverlay(size: size, borderRadius: borderRadius),
@@ -1010,7 +1062,6 @@ class _AndroidLibraryArtworkState extends State<_AndroidLibraryArtwork> {
         _isLoading = false;
       } else {
         _bytes = null;
-
         _isLoading = true;
 
         _loadArtwork();
@@ -1055,7 +1106,9 @@ class _AndroidLibraryArtworkState extends State<_AndroidLibraryArtwork> {
             cacheHeight: 96,
             filterQuality: FilterQuality.low,
             gaplessPlayback: true,
-            errorBuilder: (_, __, ___) => _buildFallback(context),
+            errorBuilder: (_, __, ___) {
+              return _buildFallback(context);
+            },
           ),
         ),
         if (widget.isPlaying)
@@ -1104,46 +1157,5 @@ class _PlayingOverlay extends StatelessWidget {
         size: size * 0.5,
       ),
     );
-  }
-}
-
-class _SongTrailing extends StatelessWidget {
-  final Song song;
-
-  const _SongTrailing({required this.song});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(
-          _formatDuration(song.duration),
-          style: Theme.of(context).textTheme.bodySmall,
-        ),
-        const SizedBox(width: 4),
-        IconButton(
-          onPressed: () {
-            SongOptions.show(context, song);
-          },
-          icon: const Icon(Icons.more_vert),
-          tooltip: l10n.options,
-          visualDensity: VisualDensity.compact,
-          padding: EdgeInsets.zero,
-        ),
-      ],
-    );
-  }
-
-  String _formatDuration(Duration duration) {
-    final totalSeconds = duration.inSeconds;
-
-    final minutes = totalSeconds ~/ 60;
-
-    final seconds = totalSeconds % 60;
-
-    return '$minutes:${seconds.toString().padLeft(2, '0')}';
   }
 }

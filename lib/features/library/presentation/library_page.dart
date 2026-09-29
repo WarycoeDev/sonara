@@ -22,10 +22,12 @@ import '../data/services/song_artwork_service.dart';
 
 enum LibraryCategory { songs, albums, artists, playlists, favorites }
 
-const double _kSongTileExtent = 73.0;
-
 const String _noAlbumKey = '__sonara_no_album__';
 const String _unknownArtistKey = '__sonara_unknown_artist__';
+
+enum _SongTapAction { replaceQueue, addToQueue, removeFromQueue, cancel }
+
+enum _PlaylistMenuAction { rename, export, delete, create, import }
 
 class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key});
@@ -80,6 +82,10 @@ class _LibraryPageState extends State<LibraryPage> {
     super.dispose();
   }
 
+  // ============================================================
+  // PLAYLISTS
+  // ============================================================
+
   Future<void> _loadPlaylists() async {
     try {
       await _playlistsRepository.initialize();
@@ -114,7 +120,6 @@ class _LibraryPageState extends State<LibraryPage> {
         songPath: song.filePath,
       );
 
-      // null = el usuario canceló el selector.
       if (artworkBytes == null) {
         return;
       }
@@ -144,12 +149,8 @@ class _LibraryPageState extends State<LibraryPage> {
 
       updatedSongs[index] = updatedSong;
 
-      // Actualiza inmediatamente canciones, favoritos,
-      // álbumes y artistas.
       _updateLibrary(updatedSongs);
 
-      // Sincroniza PlayerController para que los widgets
-      // que escuchan coverBytes también se actualicen.
       _playerController.syncLibrarySongs(updatedSongs);
 
       if (!mounted) {
@@ -214,10 +215,6 @@ class _LibraryPageState extends State<LibraryPage> {
 
     updatedSongs[index] = currentSong;
 
-    // Esto reconstruye también:
-    // - favoritos
-    // - álbumes
-    // - artistas
     _updateLibrary(updatedSongs);
 
     setState(() {});
@@ -552,7 +549,7 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   // ============================================================
-  // PLAYLISTS
+  // PLAYLIST ACTIONS
   // ============================================================
 
   Future<void> _createPlaylist() async {
@@ -784,9 +781,11 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override
   Widget build(BuildContext context) {
-    final textTheme = Theme.of(context).textTheme;
+    final theme = Theme.of(context);
+    final textTheme = theme.textTheme;
 
     return Scaffold(
+      backgroundColor: theme.scaffoldBackgroundColor,
       body: CustomScrollView(
         cacheExtent: 500,
         slivers: [
@@ -891,7 +890,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      sliver: SliverList.separated(
+      sliver: SliverList.builder(
         itemCount: _albums.length,
         addAutomaticKeepAlives: false,
         addRepaintBoundaries: true,
@@ -903,9 +902,6 @@ class _LibraryPageState extends State<LibraryPage> {
             displayName: _displayAlbumName(context, album.name),
             onTap: () => _openAlbum(album),
           );
-        },
-        separatorBuilder: (_, __) {
-          return const Divider(height: 1);
         },
       ),
     );
@@ -923,7 +919,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 16),
-      sliver: SliverList.separated(
+      sliver: SliverList.builder(
         itemCount: _artists.length,
         addAutomaticKeepAlives: false,
         addRepaintBoundaries: true,
@@ -935,9 +931,6 @@ class _LibraryPageState extends State<LibraryPage> {
             displayName: _displayArtistName(context, artist.name),
             onTap: () => _openArtist(artist),
           );
-        },
-        separatorBuilder: (_, __) {
-          return const Divider(height: 1);
         },
       ),
     );
@@ -975,10 +968,8 @@ class _LibraryPageState extends State<LibraryPage> {
             ),
           ),
           const SliverToBoxAdapter(child: SizedBox(height: 8)),
-          SliverList.separated(
+          SliverList.builder(
             itemCount: _playlists.length,
-            addAutomaticKeepAlives: false,
-            addRepaintBoundaries: true,
             itemBuilder: (context, index) {
               final playlist = _playlists[index];
 
@@ -993,11 +984,146 @@ class _LibraryPageState extends State<LibraryPage> {
                 onDelete: () => _deletePlaylist(playlist),
               );
             },
-            separatorBuilder: (_, __) {
-              return const Divider(height: 1);
-            },
           ),
         ],
+      ),
+    );
+  }
+}
+
+// ============================================================
+// ANCHORED POPUP MENU
+// ============================================================
+
+Future<T?> _showAnchoredMenu<T>({
+  required BuildContext context,
+  required GlobalKey anchorKey,
+  required List<PopupMenuEntry<T>> items,
+}) async {
+  final anchorContext = anchorKey.currentContext;
+
+  if (anchorContext == null) {
+    return null;
+  }
+
+  final renderObject = anchorContext.findRenderObject();
+
+  if (renderObject is! RenderBox) {
+    return null;
+  }
+
+  final overlayRenderObject = Overlay.of(context).context.findRenderObject();
+
+  if (overlayRenderObject is! RenderBox) {
+    return null;
+  }
+
+  final anchorTopLeft = renderObject.localToGlobal(
+    Offset.zero,
+    ancestor: overlayRenderObject,
+  );
+
+  final anchorRect = anchorTopLeft & renderObject.size;
+
+  final overlaySize = overlayRenderObject.size;
+
+  final position = RelativeRect.fromLTRB(
+    anchorRect.right - 8,
+    anchorRect.bottom + 4,
+    overlaySize.width - anchorRect.right + 8,
+    overlaySize.height - anchorRect.bottom,
+  );
+
+  return showMenu<T>(
+    context: context,
+    position: position,
+    elevation: 5,
+    color: Theme.of(context).colorScheme.surfaceContainer,
+    surfaceTintColor: Colors.transparent,
+    shadowColor: Colors.black26,
+    clipBehavior: Clip.antiAlias,
+    shape: RoundedRectangleBorder(
+      borderRadius: BorderRadius.circular(20),
+      side: BorderSide(
+        color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.45),
+      ),
+    ),
+    menuPadding: const EdgeInsets.symmetric(vertical: 6),
+    items: items,
+  );
+}
+
+// ============================================================
+// PLAYLIST POPUP ITEM
+// ============================================================
+
+class _PlaylistPopupItem extends PopupMenuEntry<_PlaylistMenuAction> {
+  final _PlaylistMenuAction value;
+  final IconData icon;
+  final String label;
+  final Color? iconColor;
+  final Color? textColor;
+
+  const _PlaylistPopupItem({
+    required this.value,
+    required this.icon,
+    required this.label,
+    this.iconColor,
+    this.textColor,
+  });
+
+  @override
+  double get height => 52;
+
+  @override
+  bool represents(_PlaylistMenuAction? value) {
+    return value == this.value;
+  }
+
+  @override
+  State<_PlaylistPopupItem> createState() => _PlaylistPopupItemState();
+}
+
+class _PlaylistPopupItemState extends State<_PlaylistPopupItem> {
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    final foregroundColor = widget.textColor ?? colorScheme.onSurface;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 4, vertical: 2),
+      child: Material(
+        color: Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () {
+            Navigator.of(context).pop(widget.value);
+          },
+          child: SizedBox(
+            height: 48,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Icon(widget.icon, color: widget.iconColor ?? foregroundColor),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Text(
+                      widget.label,
+                      style: theme.textTheme.bodyLarge?.copyWith(
+                        color: foregroundColor,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
       ),
     );
   }
@@ -1027,14 +1153,20 @@ class _LibraryHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(l10n.explore, style: titleLarge),
+        Text(
+          l10n.explore,
+          style: titleLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
         const SizedBox(height: 12),
         _LibraryCategories(
           selectedCategory: selectedCategory,
           onSelectCategory: onSelectCategory,
         ),
         const SizedBox(height: 32),
-        Text(categoryTitle, style: titleLarge),
+        Text(
+          categoryTitle,
+          style: titleLarge?.copyWith(fontWeight: FontWeight.w700),
+        ),
         const SizedBox(height: 12),
       ],
     );
@@ -1118,18 +1250,43 @@ class _LibraryCategoryButton extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (isSelected) {
-      return FilledButton.icon(
-        onPressed: onPressed,
-        icon: Icon(icon, size: 20),
-        label: Text(label),
-      );
-    }
+    final colorScheme = Theme.of(context).colorScheme;
 
-    return OutlinedButton.icon(
-      onPressed: onPressed,
-      icon: Icon(icon, size: 20),
-      label: Text(label),
+    return Material(
+      color: isSelected
+          ? colorScheme.primaryContainer
+          : colorScheme.surfaceContainer,
+      borderRadius: BorderRadius.circular(18),
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        onTap: onPressed,
+        borderRadius: BorderRadius.circular(18),
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                icon,
+                size: 19,
+                color: isSelected
+                    ? colorScheme.onPrimaryContainer
+                    : colorScheme.onSurfaceVariant,
+              ),
+              const SizedBox(width: 7),
+              Text(
+                label,
+                style: TextStyle(
+                  fontWeight: isSelected ? FontWeight.w700 : FontWeight.w500,
+                  color: isSelected
+                      ? colorScheme.onPrimaryContainer
+                      : colorScheme.onSurface,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
     );
   }
 }
@@ -1147,18 +1304,29 @@ class _EmptyLibraryState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
-    return Card(
+    return Material(
+      color: colorScheme.surfaceContainer,
+      borderRadius: BorderRadius.circular(28),
+      clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.library_music_outlined, size: 48),
+            Icon(
+              Icons.library_music_outlined,
+              size: 48,
+              color: colorScheme.primary,
+            ),
             const SizedBox(height: 16),
             Text(
               l10n.libraryEmptyTitle,
-              style: Theme.of(context).textTheme.titleMedium,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 8),
             Text(l10n.libraryEmptyDescription, textAlign: TextAlign.center),
@@ -1166,8 +1334,8 @@ class _EmptyLibraryState extends StatelessWidget {
             Text(
               l10n.scanDurationHint,
               textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                color: Theme.of(context).colorScheme.onSurface.withOpacity(0.6),
+              style: theme.textTheme.bodySmall?.copyWith(
+                color: colorScheme.onSurfaceVariant,
               ),
             ),
             const SizedBox(height: 16),
@@ -1198,18 +1366,25 @@ class _EmptyFavoritesState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
-    return Card(
+    return Material(
+      color: colorScheme.surfaceContainer,
+      borderRadius: BorderRadius.circular(28),
+      clipBehavior: Clip.antiAlias,
       child: Padding(
         padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(Icons.favorite_border, size: 48),
+            Icon(Icons.favorite_border, size: 48, color: colorScheme.primary),
             const SizedBox(height: 16),
             Text(
               l10n.noFavoritesTitle,
-              style: Theme.of(context).textTheme.titleMedium,
+              style: theme.textTheme.titleMedium?.copyWith(
+                fontWeight: FontWeight.w700,
+              ),
             ),
             const SizedBox(height: 8),
             Text(l10n.noFavoritesDescription, textAlign: TextAlign.center),
@@ -1248,21 +1423,15 @@ class _SongsSliverList extends StatelessWidget {
               onScan: onScan,
             ),
           ),
-          const SliverToBoxAdapter(child: SizedBox(height: 8)),
-          SliverFixedExtentList.builder(
+          const SliverToBoxAdapter(child: SizedBox(height: 4)),
+          SliverList.builder(
             itemCount: songs.length,
-            itemExtent: _kSongTileExtent,
             addAutomaticKeepAlives: false,
             addRepaintBoundaries: true,
             itemBuilder: (context, index) {
               final song = songs[index];
-              final isLast = index == songs.length - 1;
 
-              return _SongTileRow(
-                key: ValueKey(song.id),
-                song: song,
-                showDivider: !isLast,
-              );
+              return _LibrarySongCard(key: ValueKey(song.id), song: song);
             },
           ),
         ],
@@ -1271,30 +1440,227 @@ class _SongsSliverList extends StatelessWidget {
   }
 }
 
-class _SongTileRow extends StatelessWidget {
+class _LibrarySongCard extends StatelessWidget {
   final Song song;
-  final bool showDivider;
 
-  const _SongTileRow({
-    super.key,
-    required this.song,
-    required this.showDivider,
-  });
+  const _LibrarySongCard({super.key, required this.song});
+
+  Future<void> _handleSongTap(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+
+    final playerController = context.read<PlayerController>();
+
+    final queue = playerController.queue;
+
+    final isCurrentSong = playerController.currentSong?.id == song.id;
+
+    if (queue.isEmpty) {
+      await playerController.playSong(song);
+      return;
+    }
+
+    final isInQueue = playerController.isInQueue(song.id);
+
+    final action = await showDialog<_SongTapAction>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(l10n.playback),
+          content: Text(
+            isCurrentSong
+                ? l10n.currentlyPlaying
+                : isInQueue
+                ? l10n.songAlreadyInQueue
+                : l10n.queueContainsSongs,
+          ),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(_SongTapAction.cancel);
+              },
+              child: Text(l10n.cancel),
+            ),
+            if (!isCurrentSong)
+              TextButton(
+                onPressed: () {
+                  Navigator.of(dialogContext).pop(
+                    isInQueue
+                        ? _SongTapAction.removeFromQueue
+                        : _SongTapAction.addToQueue,
+                  );
+                },
+                child: Text(isInQueue ? l10n.removeFromQueue : l10n.addToQueue),
+              ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(_SongTapAction.replaceQueue);
+              },
+              child: Text(l10n.replaceQueue),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!context.mounted || action == null || action == _SongTapAction.cancel) {
+      return;
+    }
+
+    switch (action) {
+      case _SongTapAction.replaceQueue:
+        await playerController.clearQueue();
+        await playerController.playSong(song);
+        break;
+
+      case _SongTapAction.addToQueue:
+        if (!playerController.isInQueue(song.id)) {
+          await playerController.addToQueue(song);
+        }
+        break;
+
+      case _SongTapAction.removeFromQueue:
+        if (playerController.currentSong?.id != song.id) {
+          playerController.removeFromQueue(song);
+        }
+        break;
+
+      case _SongTapAction.cancel:
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final dividerColor = Theme.of(context).dividerColor;
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        border: showDivider
-            ? Border(bottom: BorderSide(color: dividerColor, width: 1))
-            : null,
-      ),
-      child: _SongListTile(song: song),
+    final artist = song.artist?.trim() ?? '';
+
+    final hasArtist = artist.isNotEmpty;
+
+    return Selector<
+      PlayerController,
+      ({bool isCurrentSong, String? coverPath, Uint8List? coverBytes})
+    >(
+      selector: (_, controller) {
+        final currentSong = controller.currentSong;
+
+        final isCurrentSong = currentSong?.id == song.id;
+
+        final effectiveCoverPath = isCurrentSong
+            ? currentSong?.coverPath
+            : song.coverPath;
+
+        final effectiveCoverBytes = isCurrentSong
+            ? currentSong?.coverBytes
+            : song.coverBytes;
+
+        return (
+          isCurrentSong: isCurrentSong,
+          coverPath: effectiveCoverPath,
+          coverBytes: effectiveCoverBytes,
+        );
+      },
+      builder: (context, state, _) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: InkWell(
+            onTap: () => _handleSongTap(context),
+            onLongPress: () {
+              SongOptions.show(context, song);
+            },
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+              child: Row(
+                children: [
+                  _LibraryArtwork(
+                    key: ValueKey(
+                      '${song.id}_'
+                      '${state.coverPath ?? 'no_path'}_'
+                      '${state.coverBytes?.hashCode ?? 0}',
+                    ),
+                    coverPath: state.coverPath,
+                    coverBytes: state.coverBytes,
+                    size: 48,
+                    borderRadius: 14,
+                    isPlaying: state.isCurrentSong,
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: state.isCurrentSong
+                                ? colorScheme.primary
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          hasArtist ? artist : l10n.unknownArtist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _formatDuration(song.duration),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Builder(
+                    builder: (buttonContext) {
+                      return Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(14),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: () {
+                            SongOptions.show(
+                              context,
+                              song,
+                              anchorContext: buttonContext,
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(14),
+                          child: const SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: Icon(Icons.more_vert),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
+
+// ============================================================
+// FAVORITES
+// ============================================================
 
 class _FavoritesSliverList extends StatelessWidget {
   final List<Song> songs;
@@ -1315,7 +1681,6 @@ class _FavoritesSliverList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final l10n = AppLocalizations.of(context)!;
 
     return SliverPadding(
@@ -1348,74 +1713,62 @@ class _FavoritesSliverList extends StatelessWidget {
             itemBuilder: (context, index) {
               final song = songs[index];
 
-              final songTile = _SongListTile(
+              Widget child = _FavoriteSongCard(
+                key: ValueKey(song.id),
                 song: song,
-                isReorderable: isReordering,
+                isReordering: isReordering,
                 reorderIndex: index,
               );
 
-              return Material(
-                key: ValueKey(song.id),
-                color: theme.scaffoldBackgroundColor,
-                elevation: isReordering ? 2 : 0,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (isReordering)
-                      songTile
-                    else
-                      Dismissible(
-                        key: ValueKey('favorite_${song.id}'),
-                        direction: DismissDirection.startToEnd,
-                        background: Container(
-                          alignment: Alignment.centerLeft,
-                          padding: const EdgeInsets.symmetric(horizontal: 20),
-                          color: Theme.of(context).colorScheme.error,
-                          child: Icon(
-                            Icons.remove_circle_outline,
-                            color: Theme.of(context).colorScheme.onError,
-                          ),
-                        ),
-                        confirmDismiss: (_) async {
-                          return await showDialog<bool>(
-                                context: context,
-                                builder: (dialogContext) {
-                                  return AlertDialog(
-                                    title: Text(l10n.removeFromFavorites),
-                                    content: Text(
-                                      l10n.removeFromFavoritesQuestion(
-                                        song.title,
-                                      ),
-                                    ),
-                                    actions: [
-                                      TextButton(
-                                        onPressed: () {
-                                          Navigator.of(dialogContext)
-                                              .pop(false);
-                                        },
-                                        child: Text(l10n.cancel),
-                                      ),
-                                      FilledButton(
-                                        onPressed: () {
-                                          Navigator.of(dialogContext).pop(true);
-                                        },
-                                        child: Text(l10n.remove),
-                                      ),
-                                    ],
-                                  );
-                                },
-                              ) ??
-                              false;
-                        },
-                        onDismissed: (_) async {
-                          await onRemoveFavorite(song);
-                        },
-                        child: songTile,
-                      ),
-                    if (index < songs.length - 1) const Divider(height: 1),
-                  ],
-                ),
-              );
+              if (!isReordering) {
+                child = Dismissible(
+                  key: ValueKey('favorite_${song.id}'),
+                  direction: DismissDirection.startToEnd,
+                  background: Container(
+                    alignment: Alignment.centerLeft,
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    color: Theme.of(context).colorScheme.error,
+                    child: Icon(
+                      Icons.remove_circle_outline,
+                      color: Theme.of(context).colorScheme.onError,
+                    ),
+                  ),
+                  confirmDismiss: (_) async {
+                    return await showDialog<bool>(
+                          context: context,
+                          builder: (dialogContext) {
+                            return AlertDialog(
+                              title: Text(l10n.removeFromFavorites),
+                              content: Text(
+                                l10n.removeFromFavoritesQuestion(song.title),
+                              ),
+                              actions: [
+                                TextButton(
+                                  onPressed: () {
+                                    Navigator.of(dialogContext).pop(false);
+                                  },
+                                  child: Text(l10n.cancel),
+                                ),
+                                FilledButton(
+                                  onPressed: () {
+                                    Navigator.of(dialogContext).pop(true);
+                                  },
+                                  child: Text(l10n.remove),
+                                ),
+                              ],
+                            );
+                          },
+                        ) ??
+                        false;
+                  },
+                  onDismissed: (_) async {
+                    await onRemoveFavorite(song);
+                  },
+                  child: child,
+                );
+              }
+
+              return child;
             },
           ),
         ],
@@ -1424,59 +1777,16 @@ class _FavoritesSliverList extends StatelessWidget {
   }
 }
 
-class _SongsHeader extends StatelessWidget {
-  final int songCount;
-  final bool isScanning;
-  final VoidCallback onScan;
-
-  const _SongsHeader({
-    required this.songCount,
-    required this.isScanning,
-    required this.onScan,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
-    return Row(
-      children: [
-        Expanded(
-          child: Text(
-            l10n.songsFound(songCount),
-            style: Theme.of(context).textTheme.titleMedium,
-          ),
-        ),
-        IconButton(
-          onPressed: isScanning ? null : onScan,
-          icon: isScanning
-              ? const SizedBox(
-                  width: 20,
-                  height: 20,
-                  child: CircularProgressIndicator(strokeWidth: 2),
-                )
-              : const Icon(Icons.refresh),
-          tooltip: l10n.updateList,
-        ),
-      ],
-    );
-  }
-}
-
-// ============================================================
-// SONG TILE
-// ============================================================
-
-class _SongListTile extends StatelessWidget {
+class _FavoriteSongCard extends StatelessWidget {
   final Song song;
-  final bool isReorderable;
-  final int? reorderIndex;
+  final bool isReordering;
+  final int reorderIndex;
 
-  const _SongListTile({
+  const _FavoriteSongCard({
     super.key,
     required this.song,
-    this.isReorderable = false,
-    this.reorderIndex,
+    required this.isReordering,
+    required this.reorderIndex,
   });
 
   Future<void> _handleSongTap(BuildContext context) async {
@@ -1566,18 +1876,11 @@ class _SongListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     final artist = song.artist?.trim() ?? '';
     final hasArtist = artist.isNotEmpty;
-
-    // ==========================================================
-    // ARTWORK REACTIVO
-    //
-    // Se escuchan tanto coverPath como coverBytes.
-    //
-    // Si la canción actual tiene una portada nueva en memoria,
-    // se utiliza esa portada inmediatamente.
-    // ==========================================================
 
     return Selector<
       PlayerController,
@@ -1603,78 +1906,113 @@ class _SongListTile extends StatelessWidget {
         );
       },
       builder: (context, state, _) {
-        final theme = Theme.of(context);
-
-        return ListTile(
-          onTap: isReorderable ? null : () => _handleSongTap(context),
-
-          onLongPress: isReorderable
-              ? null
-              : () {
-                  SongOptions.show(context, song);
-                },
-
-          contentPadding: const EdgeInsets.only(left: 12, right: 0),
-
-          leading: _LibraryArtwork(
-            key: ValueKey(
-              '${song.id}_'
-              '${state.coverPath ?? 'no_path'}_'
-              '${state.coverBytes?.hashCode ?? 0}',
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: Material(
+            color: colorScheme.surface,
+            borderRadius: BorderRadius.circular(20),
+            clipBehavior: Clip.antiAlias,
+            elevation: isReordering ? 1 : 0,
+            child: InkWell(
+              onTap: isReordering ? null : () => _handleSongTap(context),
+              onLongPress: isReordering
+                  ? null
+                  : () {
+                      SongOptions.show(context, song);
+                    },
+              borderRadius: BorderRadius.circular(20),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+                child: Row(
+                  children: [
+                    _LibraryArtwork(
+                      key: ValueKey(
+                        '${song.id}_'
+                        '${state.coverPath ?? 'no_path'}_'
+                        '${state.coverBytes?.hashCode ?? 0}',
+                      ),
+                      coverPath: state.coverPath,
+                      coverBytes: state.coverBytes,
+                      size: 48,
+                      borderRadius: 14,
+                      isPlaying: state.isCurrentSong,
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        mainAxisSize: MainAxisSize.min,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            song.title,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodyLarge?.copyWith(
+                              fontWeight: FontWeight.w600,
+                              color: state.isCurrentSong
+                                  ? colorScheme.primary
+                                  : null,
+                            ),
+                          ),
+                          const SizedBox(height: 3),
+                          Text(
+                            hasArtist ? artist : l10n.unknownArtist,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.bodySmall?.copyWith(
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 8),
+                    if (!isReordering) ...[
+                      Text(
+                        _formatDuration(song.duration),
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                      const SizedBox(width: 2),
+                      Builder(
+                        builder: (buttonContext) {
+                          return Material(
+                            color: Colors.transparent,
+                            borderRadius: BorderRadius.circular(14),
+                            clipBehavior: Clip.antiAlias,
+                            child: InkWell(
+                              onTap: () {
+                                SongOptions.show(
+                                  context,
+                                  song,
+                                  anchorContext: buttonContext,
+                                );
+                              },
+                              borderRadius: BorderRadius.circular(14),
+                              child: const SizedBox(
+                                width: 44,
+                                height: 44,
+                                child: Icon(Icons.more_vert),
+                              ),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
+                    if (isReordering)
+                      ReorderableDragStartListener(
+                        index: reorderIndex,
+                        child: const SizedBox(
+                          width: 44,
+                          height: 44,
+                          child: Center(child: Icon(Icons.drag_handle)),
+                        ),
+                      ),
+                  ],
+                ),
+              ),
             ),
-            coverPath: state.coverPath,
-            coverBytes: state.coverBytes,
-            size: 40,
-            borderRadius: 6,
-            isPlaying: state.isCurrentSong,
-          ),
-
-          title: Text(
-            song.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: state.isCurrentSong
-                ? theme.textTheme.bodyLarge?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.bold,
-                  )
-                : null,
-          ),
-
-          subtitle: Text(
-            hasArtist ? artist : l10n.noAlbum,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-          ),
-
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              if (!isReorderable) ...[
-                Text(
-                  _formatDuration(song.duration),
-                  style: theme.textTheme.bodySmall,
-                ),
-                const SizedBox(width: 4),
-                IconButton(
-                  onPressed: () {
-                    SongOptions.show(context, song);
-                  },
-                  icon: const Icon(Icons.more_vert),
-                  tooltip: l10n.options,
-                  visualDensity: VisualDensity.compact,
-                  padding: EdgeInsets.zero,
-                ),
-              ],
-              if (isReorderable && reorderIndex != null)
-                ReorderableDragStartListener(
-                  index: reorderIndex!,
-                  child: const Padding(
-                    padding: EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                    child: Icon(Icons.drag_handle),
-                  ),
-                ),
-            ],
           ),
         );
       },
@@ -1682,13 +2020,53 @@ class _SongListTile extends StatelessWidget {
   }
 }
 
-enum _SongTapAction { replaceQueue, addToQueue, removeFromQueue, cancel }
+class _SongsHeader extends StatelessWidget {
+  final int songCount;
+  final bool isScanning;
+  final VoidCallback onScan;
+
+  const _SongsHeader({
+    required this.songCount,
+    required this.isScanning,
+    required this.onScan,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+
+    return Row(
+      children: [
+        Expanded(
+          child: Text(
+            l10n.songsFound(songCount),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+        IconButton(
+          onPressed: isScanning ? null : onScan,
+          icon: isScanning
+              ? const SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              : const Icon(Icons.refresh),
+          tooltip: l10n.updateList,
+        ),
+      ],
+    );
+  }
+}
 
 // ============================================================
-// PLAYLISTS
+// PLAYLIST HEADER
 // ============================================================
 
-class _PlaylistsHeader extends StatelessWidget {
+class _PlaylistsHeader extends StatefulWidget {
   final int playlistCount;
   final VoidCallback onCreatePlaylist;
   final VoidCallback onImportPlaylist;
@@ -1699,65 +2077,91 @@ class _PlaylistsHeader extends StatelessWidget {
     required this.onImportPlaylist,
   });
 
-  void _showPlaylistActions(BuildContext context) {
+  @override
+  State<_PlaylistsHeader> createState() => _PlaylistsHeaderState();
+}
+
+class _PlaylistsHeaderState extends State<_PlaylistsHeader> {
+  final GlobalKey _menuKey = GlobalKey();
+
+  Future<void> _showPlaylistActions() async {
     final l10n = AppLocalizations.of(context)!;
 
-    showModalBottomSheet<void>(
+    final action = await _showAnchoredMenu<_PlaylistMenuAction>(
       context: context,
-      builder: (sheetContext) {
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.add),
-                  title: Text(l10n.newPlaylist),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    onCreatePlaylist();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.file_upload_outlined),
-                  title: Text(l10n.importPlaylist),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    onImportPlaylist();
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+      anchorKey: _menuKey,
+      items: [
+        _PlaylistPopupItem(
+          value: _PlaylistMenuAction.create,
+          icon: Icons.add,
+          label: l10n.newPlaylist,
+        ),
+        _PlaylistPopupItem(
+          value: _PlaylistMenuAction.import,
+          icon: Icons.file_upload_outlined,
+          label: l10n.importPlaylist,
+        ),
+      ],
     );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    switch (action) {
+      case _PlaylistMenuAction.create:
+        widget.onCreatePlaylist();
+        break;
+
+      case _PlaylistMenuAction.import:
+        widget.onImportPlaylist();
+        break;
+
+      case _PlaylistMenuAction.rename:
+      case _PlaylistMenuAction.export:
+      case _PlaylistMenuAction.delete:
+        break;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     return Row(
       children: [
         Expanded(
           child: Text(
-            l10n.playlistCount(playlistCount),
-            style: Theme.of(context).textTheme.titleMedium,
+            AppLocalizations.of(context)!.playlistCount(widget.playlistCount),
+            style: theme.textTheme.titleMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+            ),
           ),
         ),
-        IconButton(
-          onPressed: () {
-            _showPlaylistActions(context);
-          },
-          icon: const Icon(Icons.add),
-          tooltip: l10n.addPlaylist,
+        Material(
+          color: colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(16),
+          clipBehavior: Clip.antiAlias,
+          child: InkWell(
+            key: _menuKey,
+            onTap: _showPlaylistActions,
+            borderRadius: BorderRadius.circular(16),
+            child: const SizedBox(
+              width: 46,
+              height: 46,
+              child: Icon(Icons.add),
+            ),
+          ),
         ),
       ],
     );
   }
 }
+
+// ============================================================
+// EMPTY PLAYLISTS
+// ============================================================
 
 class _EmptyPlaylistsState extends StatelessWidget {
   const _EmptyPlaylistsState();
@@ -1765,29 +2169,42 @@ class _EmptyPlaylistsState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
-    return Padding(
-      padding: const EdgeInsets.all(24),
-      child: Center(
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.playlist_play, size: 48),
-            const SizedBox(height: 16),
-            Text(
-              l10n.noPlaylistsTitle,
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
-            const SizedBox(height: 8),
-            Text(l10n.noPlaylistsDescription, textAlign: TextAlign.center),
-          ],
+    return Material(
+      color: colorScheme.surfaceContainer,
+      borderRadius: BorderRadius.circular(28),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Center(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.playlist_play, size: 48, color: colorScheme.primary),
+              const SizedBox(height: 16),
+              Text(
+                l10n.noPlaylistsTitle,
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(l10n.noPlaylistsDescription, textAlign: TextAlign.center),
+            ],
+          ),
         ),
       ),
     );
   }
 }
 
-class _PlaylistListTile extends StatelessWidget {
+// ============================================================
+// PLAYLIST TILE
+// ============================================================
+
+class _PlaylistListTile extends StatefulWidget {
   final Playlist playlist;
   final List<Song> songs;
   final VoidCallback onTap;
@@ -1804,98 +2221,149 @@ class _PlaylistListTile extends StatelessWidget {
     required this.onDelete,
   });
 
-  void _showPlaylistMenu(BuildContext context) {
+  @override
+  State<_PlaylistListTile> createState() => _PlaylistListTileState();
+}
+
+class _PlaylistListTileState extends State<_PlaylistListTile> {
+  final GlobalKey _menuKey = GlobalKey();
+
+  Future<void> _showPlaylistMenu() async {
     final l10n = AppLocalizations.of(context)!;
+    final colorScheme = Theme.of(context).colorScheme;
 
-    showModalBottomSheet<void>(
+    final action = await _showAnchoredMenu<_PlaylistMenuAction>(
       context: context,
-      builder: (sheetContext) {
-        final colorScheme = Theme.of(sheetContext).colorScheme;
-
-        return SafeArea(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(vertical: 8),
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                ListTile(
-                  leading: const Icon(Icons.edit_outlined),
-                  title: Text(l10n.renamePlaylist),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    onRename();
-                  },
-                ),
-                ListTile(
-                  leading: const Icon(Icons.file_download_outlined),
-                  title: Text(l10n.exportPlaylist),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    onExport();
-                  },
-                ),
-                ListTile(
-                  leading: Icon(Icons.delete_outline, color: colorScheme.error),
-                  title: Text(
-                    l10n.remove,
-                    style: TextStyle(color: colorScheme.error),
-                  ),
-                  onTap: () {
-                    Navigator.of(sheetContext).pop();
-                    onDelete();
-                  },
-                ),
-              ],
-            ),
-          ),
-        );
-      },
+      anchorKey: _menuKey,
+      items: [
+        _PlaylistPopupItem(
+          value: _PlaylistMenuAction.rename,
+          icon: Icons.edit_outlined,
+          label: l10n.renamePlaylist,
+        ),
+        _PlaylistPopupItem(
+          value: _PlaylistMenuAction.export,
+          icon: Icons.file_download_outlined,
+          label: l10n.exportPlaylist,
+        ),
+        _PlaylistPopupItem(
+          value: _PlaylistMenuAction.delete,
+          icon: Icons.delete_outline,
+          label: l10n.remove,
+          iconColor: colorScheme.error,
+          textColor: colorScheme.error,
+        ),
+      ],
     );
+
+    if (!mounted || action == null) {
+      return;
+    }
+
+    switch (action) {
+      case _PlaylistMenuAction.rename:
+        widget.onRename();
+        break;
+
+      case _PlaylistMenuAction.export:
+        widget.onExport();
+        break;
+
+      case _PlaylistMenuAction.delete:
+        widget.onDelete();
+        break;
+
+      case _PlaylistMenuAction.create:
+      case _PlaylistMenuAction.import:
+        break;
+    }
   }
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
-    final firstSong = songs.isNotEmpty ? songs.first : null;
+    final firstSong = widget.songs.isNotEmpty ? widget.songs.first : null;
 
     final coverPath = firstSong?.coverPath;
+
     final coverBytes = firstSong?.coverBytes;
 
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      minVerticalPadding: 12,
-
-      leading: _LibraryArtwork(
-        key: ValueKey(
-          '${playlist.id}_'
-          '${coverPath ?? 'no_cover'}_'
-          '${coverBytes?.hashCode ?? 0}',
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Material(
+        color: colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: widget.onTap,
+          onLongPress: _showPlaylistMenu,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            child: Row(
+              children: [
+                _LibraryArtwork(
+                  key: ValueKey(
+                    '${widget.playlist.id}_'
+                    '${coverPath ?? 'no_cover'}_'
+                    '${coverBytes?.hashCode ?? 0}',
+                  ),
+                  coverPath: coverPath,
+                  coverBytes: coverBytes,
+                  size: 48,
+                  borderRadius: 14,
+                  fallbackIcon: Icons.playlist_play,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        widget.playlist.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        l10n.songCount(widget.songs.length),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                Material(
+                  color: Colors.transparent,
+                  borderRadius: BorderRadius.circular(14),
+                  clipBehavior: Clip.antiAlias,
+                  child: InkWell(
+                    key: _menuKey,
+                    onTap: _showPlaylistMenu,
+                    borderRadius: BorderRadius.circular(14),
+                    child: const SizedBox(
+                      width: 44,
+                      height: 44,
+                      child: Icon(Icons.more_vert),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
         ),
-        coverPath: coverPath,
-        coverBytes: coverBytes,
-        size: 40,
-        borderRadius: 6,
-        fallbackIcon: Icons.playlist_play,
       ),
-
-      title: Text(playlist.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-
-      subtitle: Text(l10n.songCount(songs.length)),
-
-      trailing: IconButton(
-        onPressed: () {
-          _showPlaylistMenu(context);
-        },
-        icon: const Icon(Icons.more_vert),
-        tooltip: l10n.options,
-      ),
-
-      onTap: onTap,
-
-      onLongPress: () {
-        _showPlaylistMenu(context);
-      },
     );
   }
 }
@@ -1918,60 +2386,87 @@ class _AlbumListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
-    final artist = album.artist;
+    final artist = album.artist?.trim();
 
-    final hasArtist = artist != null && artist.trim().isNotEmpty;
+    final displayArtist = artist != null && artist.isNotEmpty
+        ? artist == _unknownArtistKey
+              ? l10n.unknownArtist
+              : artist
+        : null;
 
     final firstSong = album.songs.isNotEmpty ? album.songs.first : null;
 
     final coverPath = firstSong?.coverPath;
+
     final coverBytes = firstSong?.coverBytes;
 
-    final displayArtist = hasArtist
-        ? (artist == _unknownArtistKey ? l10n.unknownArtist : artist!)
-        : null;
-
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      minVerticalPadding: 12,
-
-      leading: _LibraryArtwork(
-        key: ValueKey(
-          '${album.name}_'
-          '${coverPath ?? 'no_cover'}_'
-          '${coverBytes?.hashCode ?? 0}',
-        ),
-        coverPath: coverPath,
-        coverBytes: coverBytes,
-        size: 40,
-        borderRadius: 6,
-        fallbackIcon: Icons.album_outlined,
-      ),
-
-      title: Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
-
-      subtitle: displayArtist != null
-          ? Column(
-              mainAxisSize: MainAxisSize.min,
-              crossAxisAlignment: CrossAxisAlignment.start,
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Material(
+        color: colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            child: Row(
               children: [
-                Text(
-                  displayArtist,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
+                _LibraryArtwork(
+                  key: ValueKey(
+                    '${album.name}_'
+                    '${coverPath ?? 'no_cover'}_'
+                    '${coverBytes?.hashCode ?? 0}',
+                  ),
+                  coverPath: coverPath,
+                  coverBytes: coverBytes,
+                  size: 48,
+                  borderRadius: 14,
+                  fallbackIcon: Icons.album_outlined,
                 ),
-                Text(l10n.songCount(album.songCount)),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        displayArtist != null
+                            ? '$displayArtist · ${l10n.songCount(album.songCount)}'
+                            : l10n.songCount(album.songCount),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Center(child: Icon(Icons.chevron_right)),
+                ),
               ],
-            )
-          : Text(l10n.songCount(album.songCount)),
-
-      trailing: const SizedBox(
-        width: 40,
-        child: Center(child: Icon(Icons.chevron_right)),
+            ),
+          ),
+        ),
       ),
-
-      onTap: onTap,
     );
   }
 }
@@ -1994,39 +2489,77 @@ class _ArtistListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
     final firstSong = artist.songs.isNotEmpty ? artist.songs.first : null;
 
     final coverPath = firstSong?.coverPath;
+
     final coverBytes = firstSong?.coverBytes;
 
-    return ListTile(
-      contentPadding: EdgeInsets.zero,
-      minVerticalPadding: 12,
-
-      leading: _LibraryArtwork(
-        key: ValueKey(
-          '${artist.name}_'
-          '${coverPath ?? 'no_cover'}_'
-          '${coverBytes?.hashCode ?? 0}',
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Material(
+        color: colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            child: Row(
+              children: [
+                _LibraryArtwork(
+                  key: ValueKey(
+                    '${artist.name}_'
+                    '${coverPath ?? 'no_cover'}_'
+                    '${coverBytes?.hashCode ?? 0}',
+                  ),
+                  coverPath: coverPath,
+                  coverBytes: coverBytes,
+                  size: 48,
+                  borderRadius: 24,
+                  fallbackIcon: Icons.person_outline,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        displayName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                      const SizedBox(height: 3),
+                      Text(
+                        l10n.songCount(artist.songCount),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 4),
+                const SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Center(child: Icon(Icons.chevron_right)),
+                ),
+              ],
+            ),
+          ),
         ),
-        coverPath: coverPath,
-        coverBytes: coverBytes,
-        size: 40,
-        borderRadius: 6,
-        fallbackIcon: Icons.person_outline,
       ),
-
-      title: Text(displayName, maxLines: 1, overflow: TextOverflow.ellipsis),
-
-      subtitle: Text(l10n.songCount(artist.songCount)),
-
-      trailing: const SizedBox(
-        width: 40,
-        child: Center(child: Icon(Icons.chevron_right)),
-      ),
-
-      onTap: onTap,
     );
   }
 }
@@ -2037,18 +2570,7 @@ class _ArtistListTile extends StatelessWidget {
 
 class _LibraryArtwork extends StatelessWidget {
   final String? coverPath;
-
-  // ==========================================================
-  // IMPORTANTE:
-  //
-  // coverBytes tiene prioridad sobre coverPath.
-  //
-  // Esto permite mostrar inmediatamente la portada recién
-  // seleccionada sin tener que volver a escanear el MP3.
-  // ==========================================================
-
   final Uint8List? coverBytes;
-
   final double size;
   final double borderRadius;
   final IconData fallbackIcon;
@@ -2066,10 +2588,6 @@ class _LibraryArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    // ==========================================================
-    // 1. BYTES DE LA CARÁTULA
-    // ==========================================================
-
     final bytes = coverBytes;
 
     if (bytes != null && bytes.isNotEmpty) {
@@ -2098,19 +2616,11 @@ class _LibraryArtwork extends StatelessWidget {
       );
     }
 
-    // ==========================================================
-    // 2. COVER PATH
-    // ==========================================================
-
     final path = coverPath;
 
     if (path == null || path.isEmpty) {
       return _buildFallback(context);
     }
-
-    // ==========================================================
-    // ANDROID CONTENT URI
-    // ==========================================================
 
     if (path.startsWith('content://')) {
       return _AndroidLibraryArtwork(
@@ -2122,10 +2632,6 @@ class _LibraryArtwork extends StatelessWidget {
         isPlaying: isPlaying,
       );
     }
-
-    // ==========================================================
-    // NETWORK
-    // ==========================================================
 
     if (path.startsWith('http://') || path.startsWith('https://')) {
       return Stack(
@@ -2151,10 +2657,6 @@ class _LibraryArtwork extends StatelessWidget {
         ],
       );
     }
-
-    // ==========================================================
-    // LOCAL FILE
-    // ==========================================================
 
     return Stack(
       alignment: Alignment.center,
@@ -2410,6 +2912,7 @@ String _formatDuration(Duration duration) {
   final totalSeconds = duration.inSeconds;
 
   final minutes = totalSeconds ~/ 60;
+
   final seconds = totalSeconds % 60;
 
   return '$minutes:${seconds.toString().padLeft(2, '0')}';
