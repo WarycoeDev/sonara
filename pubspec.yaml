@@ -61,6 +61,7 @@ dependencies:
 
   image: ^4.2.0
   id3_codec: ^1.0.3
+  palette_generator: ^0.3.3+7
 
 dev_dependencies:
   flutter_test:

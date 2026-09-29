@@ -343,6 +343,108 @@ class _SonaraScrollBehavior extends MaterialScrollBehavior {
   };
 }
 
+class _TopMostPlayedCard extends StatelessWidget {
+  final Song song;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _TopMostPlayedCard({
+    required this.song,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+    final l10n = AppLocalizations.of(context)!;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Ink(
+          height: 170,
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(18),
+          ),
+          child: Row(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(10),
+                child: _CoverArt(song: song, size: 150),
+              ),
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(4, 16, 16, 16),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 10,
+                          vertical: 5,
+                        ),
+                        decoration: BoxDecoration(
+                          color: colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(9),
+                        ),
+                        child: Text(
+                          l10n.mostPlayedBadge,
+                          style: TextStyle(
+                            color: colorScheme.onPrimaryContainer,
+                            fontSize: 10,
+                            fontWeight: FontWeight.w800,
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 10),
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.center,
+                        children: [
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              song.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 17,
+                                fontWeight: FontWeight.w800,
+                                height: 1.15,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                      if (song.artist != null && song.artist!.isNotEmpty) ...[
+                        const SizedBox(height: 6),
+                        Text(
+                          song.artist!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _MostPlayedSection extends StatelessWidget {
   final List<Song> songs;
   final bool isReloading;
@@ -365,10 +467,6 @@ class _MostPlayedSection extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
 
-    final sectionTitle = songs.isEmpty
-        ? l10n.mostPlayed
-        : l10n.topMostPlayed(songs.length);
-
     return Container(
       decoration: BoxDecoration(
         color: colorScheme.surface,
@@ -382,7 +480,7 @@ class _MostPlayedSection extends StatelessWidget {
             children: [
               Expanded(
                 child: Text(
-                  sectionTitle,
+                  l10n.mostPlayed,
                   style: const TextStyle(
                     fontSize: 20,
                     fontWeight: FontWeight.w700,
@@ -413,35 +511,133 @@ class _MostPlayedSection extends StatelessWidget {
               ),
             )
           else
-            SizedBox(
-              height: 150,
-              child: TweenAnimationBuilder<double>(
-                tween: Tween<double>(begin: 0.0, end: isReloading ? 5.0 : 0.0),
-                duration: const Duration(milliseconds: 350),
-                curve: Curves.easeInOut,
-                builder: (context, blur, child) {
-                  return ImageFiltered(
-                    imageFilter: ImageFilter.blur(sigmaX: blur, sigmaY: blur),
-                    child: child,
-                  );
-                },
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: songs.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemBuilder: (context, index) {
-                    final song = songs[index];
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 300),
+              switchInCurve: Curves.easeOut,
+              switchOutCurve: Curves.easeIn,
+              child: ImageFiltered(
+                key: ValueKey(isReloading),
+                imageFilter: ImageFilter.blur(
+                  sigmaX: isReloading ? 5 : 0,
+                  sigmaY: isReloading ? 5 : 0,
+                ),
+                child: Column(
+                  children: [
+                    _TopMostPlayedCard(
+                      song: songs.first,
+                      onTap: () => onSongTap(songs.first),
+                      onLongPress: () => onSongLongPress(songs.first),
+                    ),
 
-                    return _MostPlayedCard(
-                      song: song,
-                      onTap: () => onSongTap(song),
-                      onLongPress: () => onSongLongPress(song),
-                    );
-                  },
+                    if (songs.length > 1) ...[
+                      const SizedBox(height: 12),
+
+                      SizedBox(
+                        height: 132,
+                        child: GridView.builder(
+                          padding: EdgeInsets.zero,
+                          itemCount: songs.length - 1,
+                          gridDelegate:
+                              const SliverGridDelegateWithFixedCrossAxisCount(
+                                crossAxisCount: 2,
+                                crossAxisSpacing: 8,
+                                mainAxisSpacing: 8,
+                                mainAxisExtent: 62,
+                              ),
+                          itemBuilder: (context, index) {
+                            final song = songs[index + 1];
+                            final position = index + 2;
+
+                            return _MostPlayedListTile(
+                              song: song,
+                              position: position,
+                              onTap: () => onSongTap(song),
+                              onLongPress: () => onSongLongPress(song),
+                            );
+                          },
+                        ),
+                      ),
+                    ],
+                  ],
                 ),
               ),
             ),
         ],
+      ),
+    );
+  }
+}
+
+class _MostPlayedListTile extends StatelessWidget {
+  final Song song;
+  final int position;
+  final VoidCallback onTap;
+  final VoidCallback onLongPress;
+
+  const _MostPlayedListTile({
+    required this.song,
+    required this.position,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(13),
+        onTap: onTap,
+        onLongPress: onLongPress,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(13),
+          ),
+          child: Stack(
+            children: [
+              Padding(
+                padding: const EdgeInsets.all(7),
+                child: Row(
+                  children: [
+                    _CoverArt(song: song, size: 48),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Padding(
+                        padding: const EdgeInsets.only(right: 20),
+                        child: Text(
+                          song.title,
+                          maxLines: 2,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            height: 1.1,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+
+              Positioned(
+                top: 5,
+                right: 6,
+                child: Text(
+                  '#$position',
+                  style: TextStyle(
+                    color: colorScheme.onSurfaceVariant.withValues(alpha: 0.45),
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
@@ -519,104 +715,6 @@ class _FavoritesSection extends StatelessWidget {
               ),
             ),
         ],
-      ),
-    );
-  }
-}
-
-class _MostPlayedCard extends StatelessWidget {
-  final Song song;
-  final VoidCallback onTap;
-  final VoidCallback onLongPress;
-
-  const _MostPlayedCard({
-    required this.song,
-    required this.onTap,
-    required this.onLongPress,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
-    final l10n = AppLocalizations.of(context)!;
-
-    return SizedBox(
-      width: 310,
-      child: Material(
-        color: Colors.transparent,
-        child: InkWell(
-          borderRadius: BorderRadius.circular(16),
-          onTap: onTap,
-          onLongPress: onLongPress,
-          child: Ink(
-            decoration: BoxDecoration(
-              color: colorScheme.surfaceContainerLow,
-              borderRadius: BorderRadius.circular(16),
-            ),
-            padding: const EdgeInsets.all(10),
-            child: Row(
-              children: [
-                _CoverArt(song: song, size: 130),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 8,
-                          vertical: 4,
-                        ),
-                        decoration: BoxDecoration(
-                          borderRadius: BorderRadius.circular(8),
-                          color: colorScheme.primaryContainer,
-                        ),
-                        child: Text(
-                          l10n.mostPlayedBadge,
-                          style: const TextStyle(
-                            fontSize: 9,
-                            fontWeight: FontWeight.w700,
-                          ),
-                        ),
-                      ),
-                      const SizedBox(height: 8),
-                      Text(
-                        song.title,
-                        maxLines: 2,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(
-                          fontWeight: FontWeight.w700,
-                          fontSize: 15,
-                        ),
-                      ),
-                      if (song.artist != null && song.artist!.isNotEmpty) ...[
-                        const SizedBox(height: 4),
-                        Text(
-                          song.artist!,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: TextStyle(
-                            fontSize: 12,
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        ),
-                      ],
-                      const SizedBox(height: 4),
-                      Text(
-                        _formatDuration(song.duration),
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
       ),
     );
   }

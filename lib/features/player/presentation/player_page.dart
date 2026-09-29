@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -32,16 +31,18 @@ class PlayerPage extends StatelessWidget {
         barrierColor: Colors.black54,
         transitionDuration: const Duration(milliseconds: 180),
         pageBuilder: (dialogContext, animation, secondaryAnimation) {
+          final theme = Theme.of(dialogContext);
+
           return SafeArea(
             child: Center(
               child: Material(
-                color: Theme.of(dialogContext).colorScheme.surface,
+                color: theme.colorScheme.surface,
                 borderRadius: BorderRadius.circular(24),
                 clipBehavior: Clip.antiAlias,
                 child: ConstrainedBox(
                   constraints: const BoxConstraints(
-                    maxWidth: 420,
-                    maxHeight: 820,
+                    maxWidth: 460,
+                    maxHeight: 860,
                   ),
                   child: const PlayerPage(),
                 ),
@@ -50,7 +51,15 @@ class PlayerPage extends StatelessWidget {
           );
         },
         transitionBuilder: (context, animation, secondaryAnimation, child) {
-          return FadeTransition(opacity: animation, child: child);
+          return FadeTransition(
+            opacity: animation,
+            child: ScaleTransition(
+              scale: Tween<double>(begin: 0.97, end: 1).animate(
+                CurvedAnimation(parent: animation, curve: Curves.easeOutCubic),
+              ),
+              child: child,
+            ),
+          );
         },
       );
 
@@ -70,7 +79,12 @@ class PlayerPage extends StatelessWidget {
           selector: (_, controller) => controller.currentSong,
           builder: (context, song, child) {
             if (song == null) {
-              return Center(child: Text(l10n.noSongPlaying));
+              return Center(
+                child: Text(
+                  l10n.noSongPlaying,
+                  style: Theme.of(context).textTheme.titleMedium,
+                ),
+              );
             }
 
             return _PlayerLayout(song: song);
@@ -92,142 +106,207 @@ class _PlayerPageRoute extends PageRouteBuilder<void> {
           return const RepaintBoundary(child: PlayerPage());
         },
         transitionsBuilder: (context, animation, secondaryAnimation, child) {
-          final curvedAnimation = CurvedAnimation(
+          final curved = CurvedAnimation(
             parent: animation,
             curve: Curves.easeOutCubic,
             reverseCurve: Curves.easeInCubic,
           );
 
-          final positionAnimation = Tween<Offset>(
-            begin: const Offset(0, 1),
-            end: Offset.zero,
-          ).animate(curvedAnimation);
-
-          return SlideTransition(position: positionAnimation, child: child);
+          return SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 1),
+              end: Offset.zero,
+            ).animate(curved),
+            child: child,
+          );
         },
       );
 }
 
+/* ========================================================================= */
+/* LAYOUT                                                                    */
+/* ========================================================================= */
+
 class _PlayerLayout extends StatelessWidget {
   final Song song;
 
-  const _PlayerLayout({super.key, required this.song});
+  const _PlayerLayout({required this.song});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final compact = constraints.maxHeight < 680;
+
+        return Column(
+          children: [
+            const _PlayerHeader(),
+            Expanded(
+              child: _PlayerContent(song: song, compact: compact),
+            ),
+          ],
+        );
+      },
+    );
+  }
+}
+
+class _PlayerContent extends StatelessWidget {
+  final Song song;
+  final bool compact;
+
+  const _PlayerContent({required this.song, required this.compact});
 
   @override
   Widget build(BuildContext context) {
     final size = MediaQuery.sizeOf(context);
 
-    final width = size.width;
-    final height = size.height;
+    final horizontalPadding = size.width < 400 ? 18.0 : 24.0;
 
-    final widthScale = width / 420;
-    final heightScale = height / 820;
+    return SingleChildScrollView(
+      physics: const BouncingScrollPhysics(),
+      padding: EdgeInsets.fromLTRB(
+        horizontalPadding,
+        compact ? 4 : 10,
+        horizontalPadding,
+        24,
+      ),
+      child: Center(
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 560),
+          child: Column(
+            children: [
+              SizedBox(height: compact ? 8 : 20),
 
-    final scale = widthScale < heightScale ? widthScale : heightScale;
+              _HeroArtwork(song: song, compact: compact),
 
-    final safeScale = scale.clamp(0.55, 1.4).toDouble();
+              SizedBox(height: compact ? 18 : 26),
 
-    final horizontalPadding = (24 * safeScale).clamp(12.0, 40.0).toDouble();
+              _SongTitle(song: song),
 
-    final availableWidth = width - (horizontalPadding * 2);
+              SizedBox(height: compact ? 12 : 20),
 
-    final artworkSize = availableWidth.clamp(140.0, height * 0.42).toDouble();
+              const _ModernProgress(),
 
-    return Column(
-      children: [
-        _PlayerHeader(height: (60 * safeScale).clamp(48.0, 76.0).toDouble()),
+              SizedBox(height: compact ? 6 : 14),
 
-        Expanded(
-          child: Padding(
-            padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-            child: Column(
-              children: [
-                RepaintBoundary(
-                  child: AnimatedSwitcher(
-                    duration: const Duration(milliseconds: 400),
-                    switchInCurve: Curves.easeOutCubic,
-                    switchOutCurve: Curves.easeInCubic,
-                    transitionBuilder: (child, animation) {
-                      return FadeTransition(
-                        opacity: animation,
-                        child: ScaleTransition(
-                          scale: Tween<double>(
-                            begin: 0.92,
-                            end: 1.0,
-                          ).animate(animation),
-                          child: child,
-                        ),
-                      );
-                    },
-                    child: SizedBox(
-                      key: ValueKey<String>(
-                        '${song.id}|'
-                        '${song.coverPath ?? ''}|'
-                        '${song.fileSize}|'
-                        '${song.fileLastModified ?? 0}',
-                      ),
-                      width: artworkSize,
-                      height: artworkSize,
-                      child: _AlbumArtwork(
-                        coverPath: song.coverPath,
-                        coverBytes: song.coverBytes,
-                      ),
-                    ),
-                  ),
-                ),
+              const _MainPlaybackControls(),
 
-                SizedBox(height: (18 * safeScale).clamp(10.0, 28.0).toDouble()),
+              SizedBox(height: compact ? 12 : 50),
 
-                AnimatedSwitcher(
-                  duration: const Duration(milliseconds: 350),
-                  switchInCurve: Curves.easeOut,
-                  switchOutCurve: Curves.easeIn,
-                  transitionBuilder: (child, animation) {
-                    final slideAnimation = Tween<Offset>(
-                      begin: const Offset(0, 0.15),
-                      end: Offset.zero,
-                    ).animate(animation);
+              const _SecondaryControls(),
 
-                    return FadeTransition(
-                      opacity: animation,
-                      child: SlideTransition(
-                        position: slideAnimation,
-                        child: child,
-                      ),
-                    );
-                  },
-                  child: _SongInformation(
-                    key: ValueKey<String>(
-                      '${song.id}|'
-                      '${song.title}|'
-                      '${song.artist ?? ''}',
-                    ),
-                    title: song.title,
-                    artist: song.artist,
-                    safeScale: safeScale,
-                  ),
-                ),
-
-                SizedBox(height: (12 * safeScale).clamp(8.0, 20.0).toDouble()),
-
-                const _ProgressSection(),
-
-                SizedBox(height: (8 * safeScale).clamp(4.0, 16.0).toDouble()),
-
-                _PlaybackControls(safeScale: safeScale),
-
-                SizedBox(height: (32 * safeScale).clamp(14.0, 32.0).toDouble()),
-
-                const _PlayerTools(),
-
-                const Spacer(),
-
-                const SizedBox(height: 12),
-              ],
-            ),
+              SizedBox(height: compact ? 10 : 18),
+            ],
           ),
         ),
-      ],
+      ),
+    );
+  }
+}
+
+/* ========================================================================= */
+/* HEADER                                                                    */
+/* ========================================================================= */
+
+class _PlayerHeader extends StatelessWidget {
+  const _PlayerHeader();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+
+    return SizedBox(
+      height: 60,
+      child: Row(
+        children: [
+          IconButton(
+            onPressed: () {
+              Navigator.of(context, rootNavigator: true).pop();
+            },
+            icon: const Icon(Icons.keyboard_arrow_down_rounded),
+            tooltip: l10n.minimizePlayer,
+          ),
+
+          Expanded(
+            child: Text(
+              l10n.nowPlaying,
+              textAlign: TextAlign.center,
+              style: theme.textTheme.titleSmall?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+
+          IconButton(
+            onPressed: () async {
+              final controller = context.read<PlayerController>();
+
+              await controller.removeCurrentSong();
+              await controller.clearQueue();
+
+              if (context.mounted) {
+                Navigator.of(context, rootNavigator: true).pop();
+              }
+            },
+            icon: const Icon(Icons.close_rounded),
+            tooltip: l10n.closePlayer,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/* ========================================================================= */
+/* ARTWORK                                                                   */
+/* ========================================================================= */
+
+class _HeroArtwork extends StatelessWidget {
+  final Song song;
+  final bool compact;
+
+  const _HeroArtwork({required this.song, required this.compact});
+
+  @override
+  Widget build(BuildContext context) {
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final availableWidth = constraints.maxWidth;
+
+        final artworkSize = math.min(availableWidth, compact ? 270.0 : 360.0);
+
+        return RepaintBoundary(
+          child: AnimatedSwitcher(
+            duration: const Duration(milliseconds: 400),
+            switchInCurve: Curves.easeOutCubic,
+            switchOutCurve: Curves.easeInCubic,
+            transitionBuilder: (child, animation) {
+              return FadeTransition(
+                opacity: animation,
+                child: ScaleTransition(
+                  scale: Tween<double>(begin: 0.92, end: 1).animate(animation),
+                  child: child,
+                ),
+              );
+            },
+            child: SizedBox(
+              key: ValueKey(
+                '${song.id}|'
+                '${song.coverPath ?? ''}|'
+                '${song.fileLastModified ?? 0}',
+              ),
+              width: artworkSize,
+              height: artworkSize,
+              child: _AlbumArtwork(
+                coverPath: song.coverPath,
+                coverBytes: song.coverBytes,
+              ),
+            ),
+          ),
+        );
+      },
     );
   }
 }
@@ -243,6 +322,10 @@ class _AlbumArtwork extends StatelessWidget {
 
     if (Platform.isAndroid) {
       await HapticFeedback.mediumImpact();
+    }
+
+    if (!context.mounted) {
+      return;
     }
 
     await showModalBottomSheet<void>(
@@ -279,23 +362,30 @@ class _AlbumArtwork extends StatelessWidget {
     final bytes = coverBytes;
 
     if (bytes != null && bytes.isNotEmpty) {
-      return _buildMemoryArtwork(context, bytes);
+      return _MemoryArtwork(bytes: bytes);
     }
 
     final path = coverPath;
 
     if (path == null || path.isEmpty) {
-      return _buildDefaultArtwork(context);
+      return const _DefaultArtwork();
     }
 
     if (path.startsWith('content://')) {
       return _AndroidAlbumArtwork(contentUri: path);
     }
 
-    return _buildFileArtwork(context, path);
+    return _FileArtwork(path: path);
   }
+}
 
-  Widget _buildMemoryArtwork(BuildContext context, Uint8List bytes) {
+class _MemoryArtwork extends StatelessWidget {
+  final Uint8List bytes;
+
+  const _MemoryArtwork({required this.bytes});
+
+  @override
+  Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: ColoredBox(
@@ -307,19 +397,26 @@ class _AlbumArtwork extends StatelessWidget {
           fit: BoxFit.cover,
           filterQuality: FilterQuality.high,
           gaplessPlayback: true,
-          errorBuilder: (context, error, stackTrace) {
+          errorBuilder: (_, __, ___) {
             return const _DefaultArtwork();
           },
         ),
       ),
     );
   }
+}
 
-  Widget _buildFileArtwork(BuildContext context, String path) {
+class _FileArtwork extends StatelessWidget {
+  final String path;
+
+  const _FileArtwork({required this.path});
+
+  @override
+  Widget build(BuildContext context) {
     final file = File(path);
 
     if (!file.existsSync()) {
-      return _buildDefaultArtwork(context);
+      return const _DefaultArtwork();
     }
 
     return ClipRRect(
@@ -333,24 +430,152 @@ class _AlbumArtwork extends StatelessWidget {
           fit: BoxFit.cover,
           filterQuality: FilterQuality.high,
           gaplessPlayback: true,
-          errorBuilder: (context, error, stackTrace) {
+          errorBuilder: (_, __, ___) {
             return const _DefaultArtwork();
           },
         ),
       ),
     );
   }
+}
 
-  Widget _buildDefaultArtwork(BuildContext context) {
+class _DefaultArtwork extends StatelessWidget {
+  const _DefaultArtwork();
+
+  @override
+  Widget build(BuildContext context) {
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: ColoredBox(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: const _DefaultArtwork(),
+        child: Center(
+          child: Icon(
+            Icons.music_note_rounded,
+            size: 110,
+            color: Theme.of(context).colorScheme.primary,
+          ),
+        ),
       ),
     );
   }
 }
+
+/* ========================================================================= */
+/* ANDROID ARTWORK                                                           */
+/* ========================================================================= */
+
+class _AndroidAlbumArtwork extends StatefulWidget {
+  final String contentUri;
+
+  const _AndroidAlbumArtwork({required this.contentUri});
+
+  @override
+  State<_AndroidAlbumArtwork> createState() => _AndroidAlbumArtworkState();
+}
+
+class _AndroidAlbumArtworkState extends State<_AndroidAlbumArtwork> {
+  static const MethodChannel _channel = MethodChannel('sonara/media_store');
+
+  Uint8List? _bytes;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadArtwork();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AndroidAlbumArtwork oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.contentUri != widget.contentUri) {
+      _bytes = null;
+      _loading = true;
+      _loadArtwork();
+    }
+  }
+
+  Future<void> _loadArtwork() async {
+    try {
+      final result = await _channel.invokeMethod<dynamic>(
+        'readContentUri',
+        <String, dynamic>{'uri': widget.contentUri},
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      if (result is Uint8List) {
+        setState(() {
+          _bytes = result;
+          _loading = false;
+        });
+        return;
+      }
+
+      if (result is List) {
+        setState(() {
+          _bytes = Uint8List.fromList(result.cast<int>());
+          _loading = false;
+        });
+        return;
+      }
+
+      setState(() {
+        _loading = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_bytes == null || _bytes!.isEmpty) {
+      if (_loading) {
+        return ClipRRect(
+          borderRadius: BorderRadius.circular(24),
+          child: ColoredBox(
+            color: Theme.of(context).colorScheme.surfaceContainerHighest,
+            child: const SizedBox.expand(),
+          ),
+        );
+      }
+
+      return const _DefaultArtwork();
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Image.memory(
+          _bytes!,
+          width: double.infinity,
+          height: double.infinity,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.high,
+          gaplessPlayback: true,
+          errorBuilder: (_, __, ___) {
+            return const _DefaultArtwork();
+          },
+        ),
+      ),
+    );
+  }
+}
+
+/* ========================================================================= */
+/* ARTWORK MENU                                                              */
+/* ========================================================================= */
 
 class _ArtworkMenu extends StatelessWidget {
   final BuildContext sheetContext;
@@ -372,7 +597,7 @@ class _ArtworkMenu extends StatelessWidget {
         mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(
-            leading: const Icon(Icons.save_alt),
+            leading: const Icon(Icons.save_alt_rounded),
             title: Text(l10n.saveArtwork),
             enabled: hasArtwork,
             onTap: !hasArtwork
@@ -382,26 +607,46 @@ class _ArtworkMenu extends StatelessWidget {
 
                     final saved = await controller.saveCurrentArtwork();
 
-                    if (!sheetContext.mounted) {
+                    if (!context.mounted) {
                       return;
                     }
 
-                    final messenger = ScaffoldMessenger.maybeOf(sheetContext);
-
-                    messenger?.hideCurrentSnackBar();
-
-                    messenger?.showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          saved ? l10n.artworkSaved : l10n.artworkSaveFailed,
+                    ScaffoldMessenger.of(context)
+                      ..hideCurrentSnackBar()
+                      ..showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            saved ? l10n.artworkSaved : l10n.artworkSaveFailed,
+                          ),
                         ),
-                      ),
-                    );
+                      );
                   },
           ),
-
           ListTile(
-            leading: const Icon(Icons.delete_outline),
+            leading: const Icon(Icons.image_outlined),
+            title: Text(l10n.changeArtwork),
+            onTap: () async {
+              Navigator.of(sheetContext, rootNavigator: true).pop();
+
+              final result = await controller.changeCurrentArtwork();
+
+              if (!context.mounted || result == null) {
+                return;
+              }
+
+              ScaffoldMessenger.of(context)
+                ..hideCurrentSnackBar()
+                ..showSnackBar(
+                  SnackBar(
+                    content: Text(
+                      result ? l10n.artworkChanged : l10n.artworkChangeFailed,
+                    ),
+                  ),
+                );
+            },
+          ),
+          ListTile(
+            leading: const Icon(Icons.delete_outline_rounded),
             title: Text(l10n.deleteArtwork),
             enabled: hasArtwork,
             onTap: !hasArtwork
@@ -409,9 +654,9 @@ class _ArtworkMenu extends StatelessWidget {
                 : () async {
                     Navigator.of(sheetContext, rootNavigator: true).pop();
 
-                    final shouldDelete = await _confirmDelete(context);
+                    final confirmed = await _confirmDelete(context);
 
-                    if (!shouldDelete) {
+                    if (!confirmed) {
                       return;
                     }
 
@@ -421,53 +666,19 @@ class _ArtworkMenu extends StatelessWidget {
                       return;
                     }
 
-                    final messenger = ScaffoldMessenger.maybeOf(context);
-
-                    messenger?.hideCurrentSnackBar();
-
-                    messenger?.showSnackBar(
-                      SnackBar(
-                        content: Text(
-                          deleted
-                              ? l10n.artworkDeleted
-                              : l10n.artworkDeleteFailed,
+                    ScaffoldMessenger.of(context)
+                      ..hideCurrentSnackBar()
+                      ..showSnackBar(
+                        SnackBar(
+                          content: Text(
+                            deleted
+                                ? l10n.artworkDeleted
+                                : l10n.artworkDeleteFailed,
+                          ),
                         ),
-                      ),
-                    );
+                      );
                   },
           ),
-
-          ListTile(
-            leading: const Icon(Icons.image_outlined),
-            title: Text(l10n.changeArtwork),
-            onTap: () async {
-              Navigator.of(sheetContext, rootNavigator: true).pop();
-
-              final result = await controller.changeCurrentArtwork();
-
-              if (!context.mounted) {
-                return;
-              }
-
-              final messenger = ScaffoldMessenger.maybeOf(context);
-
-              messenger?.hideCurrentSnackBar();
-
-              // null = usuario canceló el selector.
-              if (result == null) {
-                return;
-              }
-
-              messenger?.showSnackBar(
-                SnackBar(
-                  content: Text(
-                    result ? l10n.artworkChanged : l10n.artworkChangeFailed,
-                  ),
-                ),
-              );
-            },
-          ),
-
           const SizedBox(height: 12),
         ],
       ),
@@ -505,229 +716,49 @@ class _ArtworkMenu extends StatelessWidget {
   }
 }
 
-class _AndroidAlbumArtwork extends StatefulWidget {
-  final String contentUri;
+/* ========================================================================= */
+/* SONG INFORMATION                                                          */
+/* ========================================================================= */
 
-  const _AndroidAlbumArtwork({required this.contentUri});
+class _SongTitle extends StatelessWidget {
+  final Song song;
 
-  @override
-  State<_AndroidAlbumArtwork> createState() => _AndroidAlbumArtworkState();
-}
-
-class _AndroidAlbumArtworkState extends State<_AndroidAlbumArtwork> {
-  static const MethodChannel _mediaStoreChannel = MethodChannel(
-    'sonara/media_store',
-  );
-
-  Uint8List? _bytes;
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadArtwork();
-  }
-
-  @override
-  void didUpdateWidget(covariant _AndroidAlbumArtwork oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    if (oldWidget.contentUri != widget.contentUri) {
-      _bytes = null;
-      _isLoading = true;
-
-      _loadArtwork();
-    }
-  }
-
-  Future<void> _loadArtwork() async {
-    try {
-      final result = await _mediaStoreChannel.invokeMethod<dynamic>(
-        'readContentUri',
-        <String, dynamic>{'uri': widget.contentUri},
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      if (result is Uint8List) {
-        setState(() {
-          _bytes = result;
-          _isLoading = false;
-        });
-
-        return;
-      }
-
-      if (result is List) {
-        setState(() {
-          _bytes = Uint8List.fromList(result.cast<int>());
-          _isLoading = false;
-        });
-
-        return;
-      }
-
-      setState(() {
-        _bytes = null;
-        _isLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _bytes = null;
-        _isLoading = false;
-      });
-    }
-  }
+  const _SongTitle({required this.song});
 
   @override
   Widget build(BuildContext context) {
-    final bytes = _bytes;
-
-    if (bytes == null || bytes.isEmpty) {
-      if (_isLoading) {
-        return ColoredBox(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          child: const SizedBox.expand(),
-        );
-      }
-
-      return _buildDefaultArtwork(context);
-    }
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: Image.memory(
-          bytes,
-          width: double.infinity,
-          height: double.infinity,
-          fit: BoxFit.cover,
-          filterQuality: FilterQuality.high,
-          gaplessPlayback: true,
-          errorBuilder: (context, error, stackTrace) {
-            return const _DefaultArtwork();
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDefaultArtwork(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: const _DefaultArtwork(),
-      ),
-    );
-  }
-}
-
-class _DefaultArtwork extends StatelessWidget {
-  const _DefaultArtwork();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Icon(
-        Icons.music_note,
-        size: 120,
-        color: Theme.of(context).colorScheme.primary,
-      ),
-    );
-  }
-}
-
-class _PlayerHeader extends StatelessWidget {
-  final double height;
-
-  const _PlayerHeader({required this.height});
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
-    return SizedBox(
-      height: height,
-      child: Row(
-        children: [
-          IconButton(
-            onPressed: () {
-              Navigator.of(context, rootNavigator: true).pop();
-            },
-            icon: const Icon(Icons.keyboard_arrow_down),
-            tooltip: l10n.minimizePlayer,
-          ),
-
-          Expanded(child: Text(l10n.nowPlaying, textAlign: TextAlign.center)),
-
-          IconButton(
-            onPressed: () async {
-              final controller = context.read<PlayerController>();
-
-              await controller.removeCurrentSong();
-              await controller.clearQueue();
-
-              if (context.mounted) {
-                Navigator.of(context, rootNavigator: true).pop();
-              }
-            },
-            icon: const Icon(Icons.close),
-            tooltip: l10n.closePlayer,
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _SongInformation extends StatelessWidget {
-  final String title;
-  final String? artist;
-  final double safeScale;
-
-  const _SongInformation({
-    super.key,
-    required this.title,
-    required this.artist,
-    required this.safeScale,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final hasArtist = artist != null && artist!.trim().isNotEmpty;
-
+    final artist = song.artist?.trim();
     final theme = Theme.of(context);
 
-    final titleHorizontalPadding = (30 * safeScale)
-        .clamp(18.0, 44.0)
-        .toDouble();
-
-    return RepaintBoundary(
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 300),
+      transitionBuilder: (child, animation) {
+        return FadeTransition(
+          opacity: animation,
+          child: SlideTransition(
+            position: Tween<Offset>(
+              begin: const Offset(0, 0.08),
+              end: Offset.zero,
+            ).animate(animation),
+            child: child,
+          ),
+        );
+      },
       child: Column(
+        key: ValueKey('${song.id}-${song.title}-${song.artist}'),
         children: [
           Padding(
-            padding: EdgeInsets.symmetric(horizontal: titleHorizontalPadding),
-            child: _ScrollingSongTitle(title: title, safeScale: safeScale),
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            child: _ScrollingSongTitle(title: song.title),
           ),
-
-          if (hasArtist) ...[
+          if (artist != null && artist.isNotEmpty) ...[
             const SizedBox(height: 6),
-
             Text(
-              artist!,
+              artist,
+              textAlign: TextAlign.center,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              textAlign: TextAlign.center,
-              style: TextStyle(
-                fontSize: (16 * safeScale).clamp(12.0, 22.0).toDouble(),
+              style: theme.textTheme.bodyLarge?.copyWith(
                 color: theme.colorScheme.onSurfaceVariant,
               ),
             ),
@@ -740,34 +771,31 @@ class _SongInformation extends StatelessWidget {
 
 class _ScrollingSongTitle extends StatefulWidget {
   final String title;
-  final double safeScale;
 
-  const _ScrollingSongTitle({required this.title, required this.safeScale});
+  const _ScrollingSongTitle({required this.title});
 
   @override
   State<_ScrollingSongTitle> createState() => _ScrollingSongTitleState();
 }
 
 class _ScrollingSongTitleState extends State<_ScrollingSongTitle> {
-  final ScrollController _scrollController = ScrollController();
+  final ScrollController _controller = ScrollController();
 
-  double? _configuredDistance;
+  double? _distance;
   int _generation = 0;
 
-  static const double _gap = 48.0;
-  static const double _extraEndSpace = 8.0;
+  static const double _gap = 48;
 
   @override
   void didUpdateWidget(covariant _ScrollingSongTitle oldWidget) {
     super.didUpdateWidget(oldWidget);
 
-    if (oldWidget.title != widget.title ||
-        oldWidget.safeScale != widget.safeScale) {
-      _configuredDistance = null;
+    if (oldWidget.title != widget.title) {
+      _distance = null;
       _generation++;
 
-      if (_scrollController.hasClients) {
-        _scrollController.jumpTo(0);
+      if (_controller.hasClients) {
+        _controller.jumpTo(0);
       }
     }
   }
@@ -775,18 +803,16 @@ class _ScrollingSongTitleState extends State<_ScrollingSongTitle> {
   @override
   void dispose() {
     _generation++;
-    _scrollController.dispose();
+    _controller.dispose();
     super.dispose();
   }
 
-  TextStyle _titleStyle(BuildContext context) {
-    return TextStyle(
-      fontSize: (24 * widget.safeScale).clamp(16.0, 32.0).toDouble(),
-      fontWeight: FontWeight.w600,
-    );
+  TextStyle _style(BuildContext context) {
+    return Theme.of(context).textTheme.headlineSmall!
+        .copyWith(fontWeight: FontWeight.w600);
   }
 
-  double _measureTextWidth(BuildContext context, TextStyle style) {
+  double _measure(BuildContext context, TextStyle style) {
     final mediaQuery = MediaQuery.maybeOf(context);
 
     final painter = TextPainter(
@@ -801,25 +827,19 @@ class _ScrollingSongTitleState extends State<_ScrollingSongTitle> {
     return painter.width;
   }
 
-  void _configureMarquee(double distance) {
-    if (_configuredDistance != null &&
-        (_configuredDistance! - distance).abs() < 0.5) {
+  void _configure(double distance) {
+    if (_distance != null && (_distance! - distance).abs() < 0.5) {
       return;
     }
 
-    _configuredDistance = distance;
+    _distance = distance;
 
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) {
+      if (!mounted || !_controller.hasClients) {
         return;
       }
 
-      if (!_scrollController.hasClients) {
-        return;
-      }
-
-      _scrollController.jumpTo(0);
-
+      _controller.jumpTo(0);
       _startMarquee(distance);
     });
   }
@@ -835,19 +855,15 @@ class _ScrollingSongTitleState extends State<_ScrollingSongTitle> {
   Future<void> _runMarquee(double distance, int generation) async {
     await Future<void>.delayed(const Duration(milliseconds: 1200));
 
-    if (!mounted || generation != _generation) {
-      return;
-    }
-
-    if (!_scrollController.hasClients) {
+    if (!mounted || generation != _generation || !_controller.hasClients) {
       return;
     }
 
     try {
-      await _scrollController.animateTo(
+      await _controller.animateTo(
         distance,
         duration: Duration(
-          milliseconds: ((distance / 45.0) * 1000).round().clamp(2200, 15000),
+          milliseconds: ((distance / 45) * 1000).round().clamp(2200, 15000),
         ),
         curve: Curves.linear,
       );
@@ -861,61 +877,47 @@ class _ScrollingSongTitleState extends State<_ScrollingSongTitle> {
 
     await Future<void>.delayed(const Duration(milliseconds: 900));
 
-    if (!mounted || generation != _generation) {
+    if (!mounted || generation != _generation || !_controller.hasClients) {
       return;
     }
 
-    if (!_scrollController.hasClients) {
-      return;
-    }
-
-    _scrollController.jumpTo(0);
-
-    if (!mounted || generation != _generation) {
-      return;
-    }
+    _controller.jumpTo(0);
 
     unawaited(_runMarquee(distance, generation));
   }
 
   @override
   Widget build(BuildContext context) {
-    final style = _titleStyle(context);
+    final style = _style(context);
 
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableWidth = constraints.maxWidth;
+        final textWidth = _measure(context, style);
 
-        final textWidth = _measureTextWidth(context, style);
-
-        final shouldScroll = textWidth > availableWidth + 0.5;
-
-        if (!shouldScroll) {
+        if (textWidth <= availableWidth + 0.5) {
           return SizedBox(
             width: double.infinity,
             child: Text(
               widget.title,
               maxLines: 1,
               softWrap: false,
-              overflow: TextOverflow.clip,
+              overflow: TextOverflow.ellipsis,
               textAlign: TextAlign.center,
               style: style,
             ),
           );
         }
 
-        final distance =
-            textWidth +
-            (_gap * widget.safeScale) +
-            (_extraEndSpace * widget.safeScale);
+        final distance = textWidth + _gap + 8;
 
-        _configureMarquee(distance);
+        _configure(distance);
 
         return ClipRect(
           child: SizedBox(
             width: double.infinity,
             child: SingleChildScrollView(
-              controller: _scrollController,
+              controller: _controller,
               scrollDirection: Axis.horizontal,
               physics: const NeverScrollableScrollPhysics(),
               child: Row(
@@ -927,7 +929,7 @@ class _ScrollingSongTitleState extends State<_ScrollingSongTitle> {
                     softWrap: false,
                     style: style,
                   ),
-                  SizedBox(width: _gap * widget.safeScale),
+                  const SizedBox(width: _gap),
                   Text(
                     widget.title,
                     maxLines: 1,
@@ -944,14 +946,18 @@ class _ScrollingSongTitleState extends State<_ScrollingSongTitle> {
   }
 }
 
-class _ProgressSection extends StatefulWidget {
-  const _ProgressSection();
+/* ========================================================================= */
+/* PROGRESS                                                                  */
+/* ========================================================================= */
+
+class _ModernProgress extends StatefulWidget {
+  const _ModernProgress();
 
   @override
-  State<_ProgressSection> createState() => _ProgressSectionState();
+  State<_ModernProgress> createState() => _ModernProgressState();
 }
 
-class _ProgressSectionState extends State<_ProgressSection> {
+class _ModernProgressState extends State<_ModernProgress> {
   double? _dragValue;
 
   @override
@@ -966,18 +972,17 @@ class _ProgressSectionState extends State<_ProgressSection> {
 
         final positionValue = data.position.inMilliseconds.toDouble();
 
-        final sliderValue = (_dragValue ?? positionValue).clamp(0.0, maxValue);
+        final value = (_dragValue ?? positionValue).clamp(0.0, maxValue);
 
-        final displayPosition = _dragValue != null
-            ? Duration(milliseconds: _dragValue!.round())
-            : data.position;
+        final displayPosition = Duration(milliseconds: value.round());
 
         return RepaintBoundary(
           child: Column(
             children: [
               Slider(
+                min: 0,
                 max: maxValue,
-                value: sliderValue,
+                value: value,
                 onChangeStart: (value) {
                   setState(() {
                     _dragValue = value;
@@ -989,9 +994,7 @@ class _ProgressSectionState extends State<_ProgressSection> {
                   });
                 },
                 onChangeEnd: (value) async {
-                  final target = Duration(milliseconds: value.round());
-
-                  await controller.seek(target);
+                  await controller.seek(Duration(milliseconds: value.round()));
 
                   if (mounted) {
                     setState(() {
@@ -1000,14 +1003,19 @@ class _ProgressSectionState extends State<_ProgressSection> {
                   }
                 },
               ),
-
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    Text(_formatTime(displayPosition)),
-                    Text(_formatTime(data.duration)),
+                    Text(
+                      _formatTime(displayPosition),
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
+                    Text(
+                      _formatTime(data.duration),
+                      style: Theme.of(context).textTheme.labelMedium,
+                    ),
                   ],
                 ),
               ),
@@ -1023,18 +1031,20 @@ class _ProgressSectionState extends State<_ProgressSection> {
       return '0:00';
     }
 
-    final totalSeconds = duration.inSeconds;
-    final minutes = totalSeconds ~/ 60;
-    final seconds = totalSeconds % 60;
+    final seconds = duration.inSeconds;
+    final minutes = seconds ~/ 60;
+    final remaining = seconds % 60;
 
-    return '$minutes:${seconds.toString().padLeft(2, '0')}';
+    return '$minutes:${remaining.toString().padLeft(2, '0')}';
   }
 }
 
-class _PlaybackControls extends StatelessWidget {
-  final double safeScale;
+/* ========================================================================= */
+/* MAIN CONTROLS                                                             */
+/* ========================================================================= */
 
-  const _PlaybackControls({required this.safeScale});
+class _MainPlaybackControls extends StatelessWidget {
+  const _MainPlaybackControls();
 
   @override
   Widget build(BuildContext context) {
@@ -1057,8 +1067,8 @@ class _PlaybackControls extends StatelessWidget {
           children: [
             IconButton(
               onPressed: state.hasPrevious ? controller.playPrevious : null,
-              iconSize: (36 * safeScale).clamp(26.0, 48.0).toDouble(),
-              icon: const Icon(Icons.skip_previous),
+              icon: const Icon(Icons.skip_previous_rounded),
+              iconSize: 36,
               tooltip: l10n.previous,
             ),
 
@@ -1066,20 +1076,28 @@ class _PlaybackControls extends StatelessWidget {
               onPressed: controller.togglePlayPause,
               style: FilledButton.styleFrom(
                 shape: const CircleBorder(),
-                padding: EdgeInsets.all(
-                  (20 * safeScale).clamp(12.0, 28.0).toDouble(),
-                ),
+                padding: const EdgeInsets.all(20),
+                minimumSize: const Size(78, 78),
               ),
-              child: Icon(
-                state.isPlaying ? Icons.pause : Icons.play_arrow,
-                size: (42 * safeScale).clamp(30.0, 56.0).toDouble(),
+              child: AnimatedSwitcher(
+                duration: const Duration(milliseconds: 160),
+                transitionBuilder: (child, animation) {
+                  return ScaleTransition(scale: animation, child: child);
+                },
+                child: Icon(
+                  state.isPlaying
+                      ? Icons.pause_rounded
+                      : Icons.play_arrow_rounded,
+                  key: ValueKey(state.isPlaying),
+                  size: 40,
+                ),
               ),
             ),
 
             IconButton(
               onPressed: state.hasNext ? controller.playNext : null,
-              iconSize: (36 * safeScale).clamp(26.0, 48.0).toDouble(),
-              icon: const Icon(Icons.skip_next),
+              icon: const Icon(Icons.skip_next_rounded),
+              iconSize: 36,
               tooltip: l10n.next,
             ),
           ],
@@ -1089,47 +1107,56 @@ class _PlaybackControls extends StatelessWidget {
   }
 }
 
-class _PlayerTools extends StatelessWidget {
-  const _PlayerTools();
+/* ========================================================================= */
+/* SECONDARY CONTROLS                                                        */
+/* ========================================================================= */
+
+class _SecondaryControls extends StatelessWidget {
+  const _SecondaryControls();
 
   @override
   Widget build(BuildContext context) {
-    return Selector<PlayerController, SonaraRepeatMode>(
-      selector: (_, controller) => controller.repeatMode,
-      builder: (context, repeatMode, child) {
-        final l10n = AppLocalizations.of(context)!;
+    final l10n = AppLocalizations.of(context)!;
+
+    return Selector<
+      PlayerController,
+      ({bool shuffle, SonaraRepeatMode repeatMode, bool isFavorite})
+    >(
+      selector: (_, controller) => (
+        shuffle: controller.isShuffleEnabled,
+        repeatMode: controller.repeatMode,
+        isFavorite: controller.isFavorite,
+      ),
+      builder: (context, state, child) {
+        final controller = context.read<PlayerController>();
 
         return Row(
+          mainAxisAlignment: MainAxisAlignment.spaceEvenly,
           children: [
-            Expanded(
-              child: _PlayerOptionButton(
-                icon: Icons.more_horiz,
-                label: l10n.options,
-                onPressed: () {
-                  _showOptions(context);
-                },
-              ),
+            _PlayerOptionButton(
+              icon: state.isFavorite
+                  ? Icons.favorite_rounded
+                  : Icons.favorite_border_rounded,
+              label: "",
+              isActive: state.isFavorite,
+              onPressed: controller.toggleFavorite,
             ),
 
-            Expanded(
-              child: _PlayerOptionButton(
-                icon: _repeatIcon(repeatMode),
-                label: _repeatLabel(context, repeatMode),
-                isActive: repeatMode != SonaraRepeatMode.off,
-                onPressed: () {
-                  _showModes(context);
-                },
-              ),
+            _PlayerOptionButton(
+              icon: _repeatIcon(state.repeatMode),
+              label: "",
+              isActive: state.repeatMode != SonaraRepeatMode.off,
+              onPressed: () {
+                _showRepeatModes(context);
+              },
             ),
 
-            Expanded(
-              child: _PlayerOptionButton(
-                icon: Icons.queue_music,
-                label: l10n.queue,
-                onPressed: () {
-                  _showQueue(context);
-                },
-              ),
+            _PlayerOptionButton(
+              icon: Icons.queue_music_rounded,
+              label: "",
+              onPressed: () {
+                _showQueue(context);
+              },
             ),
           ],
         );
@@ -1137,50 +1164,31 @@ class _PlayerTools extends StatelessWidget {
     );
   }
 
-  void _showOptions(BuildContext context) {
-    showModalBottomSheet<void>(
-      context: context,
-      useRootNavigator: true,
-      showDragHandle: true,
-      builder: (sheetContext) {
-        return Selector<PlayerController, bool>(
-          selector: (_, controller) => controller.isFavorite,
-          builder: (context, isFavorite, child) {
-            final l10n = AppLocalizations.of(context)!;
+  static IconData _repeatIcon(SonaraRepeatMode mode) {
+    switch (mode) {
+      case SonaraRepeatMode.off:
+      case SonaraRepeatMode.all:
+        return Icons.repeat_rounded;
 
-            return SafeArea(
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  ListTile(
-                    leading: Icon(
-                      isFavorite ? Icons.favorite : Icons.favorite_border,
-                    ),
-                    title: Text(
-                      isFavorite
-                          ? l10n.removeFromFavorites
-                          : l10n.addToFavorites,
-                    ),
-                    onTap: () async {
-                      await context.read<PlayerController>().toggleFavorite();
-
-                      if (sheetContext.mounted) {
-                        Navigator.of(sheetContext, rootNavigator: true).pop();
-                      }
-                    },
-                  ),
-
-                  const SizedBox(height: 12),
-                ],
-              ),
-            );
-          },
-        );
-      },
-    );
+      case SonaraRepeatMode.one:
+        return Icons.repeat_one_rounded;
+    }
   }
 
-  void _showModes(BuildContext context) {
+  static String _repeatLabel(BuildContext context, SonaraRepeatMode mode) {
+    final l10n = AppLocalizations.of(context)!;
+
+    switch (mode) {
+      case SonaraRepeatMode.off:
+        return l10n.repeatOff;
+      case SonaraRepeatMode.one:
+        return l10n.repeatSong;
+      case SonaraRepeatMode.all:
+        return l10n.repeatQueue;
+    }
+  }
+
+  void _showRepeatModes(BuildContext context) {
     showModalBottomSheet<void>(
       context: context,
       useRootNavigator: true,
@@ -1196,40 +1204,73 @@ class _PlayerTools extends StatelessWidget {
       context: context,
       useRootNavigator: true,
       showDragHandle: true,
-      builder: (sheetContext) {
-        return const _QueueSheet();
+      isScrollControlled: true,
+      builder: (_) {
+        return const _RedesignedQueueSheet();
       },
     );
   }
+}
 
-  static IconData _repeatIcon(SonaraRepeatMode mode) {
-    switch (mode) {
-      case SonaraRepeatMode.off:
-        return Icons.repeat;
+/* ========================================================================= */
+/* BOTTOM ACTIONS                                                            */
+/* ========================================================================= */
 
-      case SonaraRepeatMode.one:
-        return Icons.repeat_one;
+class _PlayerOptionButton extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final VoidCallback onPressed;
+  final bool isActive;
 
-      case SonaraRepeatMode.all:
-        return Icons.repeat;
-    }
-  }
+  const _PlayerOptionButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.isActive = false,
+  });
 
-  static String _repeatLabel(BuildContext context, SonaraRepeatMode mode) {
-    final l10n = AppLocalizations.of(context)!;
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
 
-    switch (mode) {
-      case SonaraRepeatMode.off:
-        return l10n.repeatOff;
+    final color = isActive
+        ? theme.colorScheme.primary
+        : theme.colorScheme.onSurfaceVariant;
 
-      case SonaraRepeatMode.one:
-        return l10n.repeatSong;
-
-      case SonaraRepeatMode.all:
-        return l10n.repeatQueue;
-    }
+    return RepaintBoundary(
+      child: InkWell(
+        borderRadius: BorderRadius.circular(18),
+        onTap: onPressed,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 8, horizontal: 6),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              IconButton(
+                onPressed: onPressed,
+                icon: Icon(icon),
+                color: color,
+                iconSize: 25,
+                visualDensity: VisualDensity.compact,
+              ),
+              Text(
+                label,
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(color: color),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 }
+
+/* ========================================================================= */
+/* MODES SHEET                                                               */
+/* ========================================================================= */
 
 class _ModesSheet extends StatelessWidget {
   final BuildContext sheetContext;
@@ -1240,81 +1281,114 @@ class _ModesSheet extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
-    return Selector<
-      PlayerController,
-      ({bool shuffle, SonaraRepeatMode repeatMode})
-    >(
-      selector: (_, controller) => (
-        shuffle: controller.isShuffleEnabled,
-        repeatMode: controller.repeatMode,
-      ),
-      builder: (context, state, child) {
-        final controller = context.read<PlayerController>();
+    return SafeArea(
+      child:
+          Selector<
+            PlayerController,
+            ({bool shuffle, SonaraRepeatMode repeatMode})
+          >(
+            selector: (_, controller) => (
+              shuffle: controller.isShuffleEnabled,
+              repeatMode: controller.repeatMode,
+            ),
+            builder: (context, state, child) {
+              final controller = context.read<PlayerController>();
 
-        final primaryColor = Theme.of(context).colorScheme.primary;
+              final primary = Theme.of(context).colorScheme.primary;
 
-        return SafeArea(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              SwitchListTile(
-                secondary: Icon(
-                  Icons.shuffle,
-                  color: state.shuffle ? primaryColor : null,
-                ),
-                title: Text(
-                  state.shuffle ? l10n.shuffleEnabled : l10n.shuffleDisabled,
-                ),
-                value: state.shuffle,
-                onChanged: (_) {
-                  controller.toggleShuffle();
-                },
-              ),
+              return Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  SwitchListTile(
+                    secondary: Icon(
+                      Icons.shuffle_rounded,
+                      color: state.shuffle ? primary : null,
+                    ),
+                    title: Text(
+                      state.shuffle
+                          ? l10n.shuffleEnabled
+                          : l10n.shuffleDisabled,
+                    ),
+                    value: state.shuffle,
+                    onChanged: (_) {
+                      controller.toggleShuffle();
+                    },
+                  ),
 
-              _RepeatModeTile(
-                icon: Icons.repeat,
-                label: l10n.repeatOff,
-                isSelected: state.repeatMode == SonaraRepeatMode.off,
-                onTap: () {
-                  controller.setRepeatMode(SonaraRepeatMode.off);
+                  _RepeatModeTile(
+                    icon: Icons.repeat_rounded,
+                    label: l10n.repeatOff,
+                    isSelected: state.repeatMode == SonaraRepeatMode.off,
+                    onTap: () {
+                      controller.setRepeatMode(SonaraRepeatMode.off);
 
-                  Navigator.of(sheetContext, rootNavigator: true).pop();
-                },
-              ),
+                      Navigator.of(sheetContext, rootNavigator: true).pop();
+                    },
+                  ),
 
-              _RepeatModeTile(
-                icon: Icons.repeat_one,
-                label: l10n.repeatSong,
-                isSelected: state.repeatMode == SonaraRepeatMode.one,
-                onTap: () {
-                  controller.setRepeatMode(SonaraRepeatMode.one);
+                  _RepeatModeTile(
+                    icon: Icons.repeat_one_rounded,
+                    label: l10n.repeatSong,
+                    isSelected: state.repeatMode == SonaraRepeatMode.one,
+                    onTap: () {
+                      controller.setRepeatMode(SonaraRepeatMode.one);
 
-                  Navigator.of(sheetContext, rootNavigator: true).pop();
-                },
-              ),
+                      Navigator.of(sheetContext, rootNavigator: true).pop();
+                    },
+                  ),
 
-              _RepeatModeTile(
-                icon: Icons.repeat,
-                label: l10n.repeatQueue,
-                isSelected: state.repeatMode == SonaraRepeatMode.all,
-                onTap: () {
-                  controller.setRepeatMode(SonaraRepeatMode.all);
+                  _RepeatModeTile(
+                    icon: Icons.repeat_rounded,
+                    label: l10n.repeatQueue,
+                    isSelected: state.repeatMode == SonaraRepeatMode.all,
+                    onTap: () {
+                      controller.setRepeatMode(SonaraRepeatMode.all);
 
-                  Navigator.of(sheetContext, rootNavigator: true).pop();
-                },
-              ),
+                      Navigator.of(sheetContext, rootNavigator: true).pop();
+                    },
+                  ),
 
-              const SizedBox(height: 12),
-            ],
+                  const SizedBox(height: 12),
+                ],
+              );
+            },
           ),
-        );
-      },
     );
   }
 }
 
-class _QueueSheet extends StatelessWidget {
-  const _QueueSheet();
+class _RepeatModeTile extends StatelessWidget {
+  final IconData icon;
+  final String label;
+  final bool isSelected;
+  final VoidCallback onTap;
+
+  const _RepeatModeTile({
+    required this.icon,
+    required this.label,
+    required this.isSelected,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final primary = Theme.of(context).colorScheme.primary;
+
+    return ListTile(
+      leading: Icon(icon, color: isSelected ? primary : null),
+      title: Text(label),
+      selected: isSelected,
+      onTap: onTap,
+    );
+  }
+}
+
+/* ========================================================================= */
+/* QUEUE                                                                     */
+/* ========================================================================= */
+
+class _RedesignedQueueSheet extends StatelessWidget {
+  const _RedesignedQueueSheet();
 
   @override
   Widget build(BuildContext context) {
@@ -1322,17 +1396,21 @@ class _QueueSheet extends StatelessWidget {
 
     return SafeArea(
       child: SizedBox(
-        height: 400,
+        height: MediaQuery.sizeOf(context).height * 0.32,
         child: Column(
           children: [
             Padding(
-              padding: const EdgeInsets.all(16),
-              child: Text(
-                l10n.queueTitle,
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                ),
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 14),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.queueTitle,
+                      style: Theme.of(context).textTheme.headlineSmall
+                          ?.copyWith(fontWeight: FontWeight.w700),
+                    ),
+                  ),
+                ],
               ),
             ),
 
@@ -1347,25 +1425,22 @@ class _QueueSheet extends StatelessWidget {
                       currentSongId: controller.currentSong?.id,
                     ),
                     builder: (context, data, child) {
-                      final queue = data.queue;
-
-                      if (queue.isEmpty) {
+                      if (data.queue.isEmpty) {
                         return Center(child: Text(l10n.queueEmpty));
                       }
 
                       return ReorderableListView.builder(
-                        itemCount: queue.length,
+                        padding: const EdgeInsets.symmetric(horizontal: 12),
+                        itemCount: data.queue.length,
                         buildDefaultDragHandles: false,
                         itemBuilder: (context, index) {
-                          final song = queue[index];
-
-                          final isCurrent = song.id == data.currentSongId;
+                          final song = data.queue[index];
 
                           return _QueueItem(
                             key: ValueKey(song.id),
                             song: song,
                             index: index,
-                            isCurrent: isCurrent,
+                            isCurrent: song.id == data.currentSongId,
                           );
                         },
                         onReorder: (oldIndex, newIndex) {
@@ -1405,75 +1480,125 @@ class _QueueItem extends StatelessWidget {
   Widget build(BuildContext context) {
     final controller = context.read<PlayerController>();
 
-    final colorScheme = Theme.of(context).colorScheme;
+    final scheme = Theme.of(context).colorScheme;
 
     return Dismissible(
       key: ValueKey('queue_${song.id}'),
-      direction: DismissDirection.horizontal,
+      direction: isCurrent
+          ? DismissDirection.none
+          : DismissDirection.horizontal,
       dismissThresholds: const {
         DismissDirection.startToEnd: 0.35,
         DismissDirection.endToStart: 0.35,
       },
-      background: Container(
-        alignment: Alignment.centerLeft,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        color: colorScheme.error,
-        child: Icon(Icons.remove_circle_outline, color: colorScheme.onError),
-      ),
-      secondaryBackground: Container(
+      background: _QueueDismissBackground(alignment: Alignment.centerLeft),
+      secondaryBackground: _QueueDismissBackground(
         alignment: Alignment.centerRight,
-        padding: const EdgeInsets.symmetric(horizontal: 20),
-        color: colorScheme.error,
-        child: Icon(Icons.remove_circle_outline, color: colorScheme.onError),
       ),
-      confirmDismiss: (_) async {
-        return !isCurrent;
-      },
       onDismissed: (_) {
         controller.removeFromQueue(song);
       },
-      child: ListTile(
-        leading: _QueueArtwork(
-          coverPath: song.coverPath,
-          coverBytes: song.coverBytes,
-          isCurrent: isCurrent,
-          size: 40,
-          borderRadius: 6,
-        ),
-        title: Text(
-          song.title,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          style: isCurrent
-              ? Theme.of(context).textTheme.bodyLarge?.copyWith(
-                  color: colorScheme.primary,
-                  fontWeight: FontWeight.bold,
-                )
-              : null,
-        ),
-        subtitle: song.artist != null && song.artist!.isNotEmpty
-            ? Text(song.artist!, maxLines: 1, overflow: TextOverflow.ellipsis)
-            : null,
-        trailing: ReorderableDragStartListener(
-          index: index,
-          child: const Padding(
-            padding: EdgeInsets.symmetric(horizontal: 8),
-            child: Icon(Icons.drag_handle),
+      child: Material(
+        color: isCurrent
+            ? scheme.primary.withOpacity(0.08)
+            : Colors.transparent,
+        borderRadius: BorderRadius.circular(16),
+        child: InkWell(
+          borderRadius: BorderRadius.circular(16),
+          onTap: () async {
+            final queue = List<Song>.from(controller.queue);
+
+            await controller.playFromQueue(queue, startIndex: index);
+
+            if (context.mounted) {
+              Navigator.of(context, rootNavigator: true).pop();
+            }
+          },
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            child: Row(
+              children: [
+                _QueueArtwork(
+                  coverPath: song.coverPath,
+                  coverBytes: song.coverBytes,
+                  isCurrent: isCurrent,
+                  size: 48,
+                  borderRadius: 10,
+                ),
+
+                const SizedBox(width: 13),
+
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        song.title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontWeight: isCurrent
+                              ? FontWeight.w700
+                              : FontWeight.w500,
+                          color: isCurrent ? scheme.primary : null,
+                        ),
+                      ),
+                      if (song.artist != null && song.artist!.isNotEmpty) ...[
+                        const SizedBox(height: 3),
+                        Text(
+                          song.artist!,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: scheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+
+                if (isCurrent)
+                  Padding(padding: const EdgeInsets.symmetric(horizontal: 8)),
+
+                ReorderableDragStartListener(
+                  index: index,
+                  child: const Padding(
+                    padding: EdgeInsets.all(8),
+                    child: Icon(Icons.drag_handle_rounded),
+                  ),
+                ),
+              ],
+            ),
           ),
         ),
-        onTap: () async {
-          final queue = List<Song>.from(controller.queue);
-
-          await controller.playFromQueue(queue, startIndex: index);
-
-          if (context.mounted) {
-            Navigator.of(context, rootNavigator: true).pop();
-          }
-        },
       ),
     );
   }
 }
+
+class _QueueDismissBackground extends StatelessWidget {
+  final Alignment alignment;
+
+  const _QueueDismissBackground({required this.alignment});
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+
+    return Container(
+      alignment: alignment,
+      padding: const EdgeInsets.symmetric(horizontal: 24),
+      color: scheme.error,
+      child: Icon(Icons.remove_circle_outline_rounded, color: scheme.onError),
+    );
+  }
+}
+
+/* ========================================================================= */
+/* QUEUE ARTWORK                                                             */
+/* ========================================================================= */
 
 class _QueueArtwork extends StatelessWidget {
   final String? coverPath;
@@ -1495,36 +1620,28 @@ class _QueueArtwork extends StatelessWidget {
     final bytes = coverBytes;
 
     if (bytes != null && bytes.isNotEmpty) {
-      return Stack(
-        alignment: Alignment.center,
-        children: [
-          ClipRRect(
-            borderRadius: BorderRadius.circular(borderRadius),
-            child: Image.memory(
-              bytes,
-              width: size,
-              height: size,
-              fit: BoxFit.cover,
-              cacheWidth: 128,
-              cacheHeight: 128,
-              filterQuality: FilterQuality.low,
-              gaplessPlayback: true,
-              errorBuilder: (context, error, stackTrace) {
-                return _buildFallback(context);
-              },
-            ),
-          ),
-
-          if (isCurrent)
-            _QueuePlayingOverlay(size: size, borderRadius: borderRadius),
-        ],
+      return _buildImage(
+        context,
+        Image.memory(
+          bytes,
+          width: size,
+          height: size,
+          fit: BoxFit.cover,
+          cacheWidth: 128,
+          cacheHeight: 128,
+          filterQuality: FilterQuality.low,
+          gaplessPlayback: true,
+          errorBuilder: (_, __, ___) {
+            return _fallback(context);
+          },
+        ),
       );
     }
 
     final path = coverPath;
 
     if (path == null || path.isEmpty) {
-      return _buildFallback(context);
+      return _fallback(context);
     }
 
     if (path.startsWith('content://')) {
@@ -1536,44 +1653,46 @@ class _QueueArtwork extends StatelessWidget {
       );
     }
 
-    return _buildFileArtwork(context, path);
-  }
-
-  Widget _buildFileArtwork(BuildContext context, String path) {
     final file = File(path);
 
     if (!file.existsSync()) {
-      return _buildFallback(context);
+      return _fallback(context);
     }
 
+    return _buildImage(
+      context,
+      Image.file(
+        file,
+        width: size,
+        height: size,
+        fit: BoxFit.cover,
+        cacheWidth: 128,
+        cacheHeight: 128,
+        filterQuality: FilterQuality.low,
+        gaplessPlayback: true,
+        errorBuilder: (_, __, ___) {
+          return _fallback(context);
+        },
+      ),
+    );
+  }
+
+  Widget _buildImage(BuildContext context, Widget image) {
     return Stack(
       alignment: Alignment.center,
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(borderRadius),
-          child: Image.file(
-            file,
-            width: size,
-            height: size,
-            fit: BoxFit.cover,
-            cacheWidth: 128,
-            cacheHeight: 128,
-            filterQuality: FilterQuality.low,
-            gaplessPlayback: true,
-            errorBuilder: (context, error, stackTrace) {
-              return _buildFallback(context);
-            },
-          ),
+          child: image,
         ),
-
         if (isCurrent)
           _QueuePlayingOverlay(size: size, borderRadius: borderRadius),
       ],
     );
   }
 
-  Widget _buildFallback(BuildContext context) {
-    final iconColor = isCurrent
+  Widget _fallback(BuildContext context) {
+    final color = isCurrent
         ? Theme.of(context).colorScheme.primary
         : Theme.of(context).colorScheme.onSurfaceVariant;
 
@@ -1582,14 +1701,18 @@ class _QueueArtwork extends StatelessWidget {
       height: size,
       child: Center(
         child: Icon(
-          isCurrent ? Icons.graphic_eq : Icons.music_note,
+          isCurrent ? Icons.graphic_eq_rounded : Icons.music_note_rounded,
           size: size * 0.55,
-          color: iconColor,
+          color: color,
         ),
       ),
     );
   }
 }
+
+/* ========================================================================= */
+/* ANDROID QUEUE ARTWORK                                                     */
+/* ========================================================================= */
 
 class _AndroidQueueArtwork extends StatefulWidget {
   final String contentUri;
@@ -1609,12 +1732,10 @@ class _AndroidQueueArtwork extends StatefulWidget {
 }
 
 class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
-  static const MethodChannel _mediaStoreChannel = MethodChannel(
-    'sonara/media_store',
-  );
+  static const MethodChannel _channel = MethodChannel('sonara/media_store');
 
   Uint8List? _bytes;
-  bool _isLoading = true;
+  bool _loading = true;
 
   @override
   void initState() {
@@ -1628,15 +1749,14 @@ class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
 
     if (oldWidget.contentUri != widget.contentUri) {
       _bytes = null;
-      _isLoading = true;
-
+      _loading = true;
       _loadArtwork();
     }
   }
 
   Future<void> _loadArtwork() async {
     try {
-      final result = await _mediaStoreChannel.invokeMethod<dynamic>(
+      final result = await _channel.invokeMethod<dynamic>(
         'readContentUri',
         <String, dynamic>{'uri': widget.contentUri},
       );
@@ -1648,24 +1768,21 @@ class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
       if (result is Uint8List) {
         setState(() {
           _bytes = result;
-          _isLoading = false;
+          _loading = false;
         });
-
         return;
       }
 
       if (result is List) {
         setState(() {
           _bytes = Uint8List.fromList(result.cast<int>());
-          _isLoading = false;
+          _loading = false;
         });
-
         return;
       }
 
       setState(() {
-        _bytes = null;
-        _isLoading = false;
+        _loading = false;
       });
     } catch (_) {
       if (!mounted) {
@@ -1673,22 +1790,19 @@ class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
       }
 
       setState(() {
-        _bytes = null;
-        _isLoading = false;
+        _loading = false;
       });
     }
   }
 
   @override
   Widget build(BuildContext context) {
-    final bytes = _bytes;
-
-    if (bytes == null || bytes.isEmpty) {
-      if (_isLoading) {
+    if (_bytes == null || _bytes!.isEmpty) {
+      if (_loading) {
         return SizedBox(width: widget.size, height: widget.size);
       }
 
-      return _buildFallback(context);
+      return _fallback(context);
     }
 
     return Stack(
@@ -1697,7 +1811,7 @@ class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
         ClipRRect(
           borderRadius: BorderRadius.circular(widget.borderRadius),
           child: Image.memory(
-            bytes,
+            _bytes!,
             width: widget.size,
             height: widget.size,
             fit: BoxFit.cover,
@@ -1705,12 +1819,11 @@ class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
             cacheHeight: 128,
             filterQuality: FilterQuality.low,
             gaplessPlayback: true,
-            errorBuilder: (context, error, stackTrace) {
-              return _buildFallback(context);
+            errorBuilder: (_, __, ___) {
+              return _fallback(context);
             },
           ),
         ),
-
         if (widget.isCurrent)
           _QueuePlayingOverlay(
             size: widget.size,
@@ -1720,8 +1833,8 @@ class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
     );
   }
 
-  Widget _buildFallback(BuildContext context) {
-    final iconColor = widget.isCurrent
+  Widget _fallback(BuildContext context) {
+    final color = widget.isCurrent
         ? Theme.of(context).colorScheme.primary
         : Theme.of(context).colorScheme.onSurfaceVariant;
 
@@ -1730,9 +1843,11 @@ class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
       height: widget.size,
       child: Center(
         child: Icon(
-          widget.isCurrent ? Icons.graphic_eq : Icons.music_note,
+          widget.isCurrent
+              ? Icons.graphic_eq_rounded
+              : Icons.music_note_rounded,
           size: widget.size * 0.55,
-          color: iconColor,
+          color: color,
         ),
       ),
     );
@@ -1755,83 +1870,10 @@ class _QueuePlayingOverlay extends StatelessWidget {
         borderRadius: BorderRadius.circular(borderRadius),
       ),
       child: Icon(
-        Icons.graphic_eq,
+        Icons.graphic_eq_rounded,
         size: size * 0.5,
         color: Theme.of(context).colorScheme.primary,
       ),
-    );
-  }
-}
-
-class _PlayerOptionButton extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final VoidCallback onPressed;
-  final bool isActive;
-
-  const _PlayerOptionButton({
-    required this.icon,
-    required this.label,
-    required this.onPressed,
-    this.isActive = false,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-
-    final color = isActive
-        ? theme.colorScheme.primary
-        : theme.colorScheme.onSurface;
-
-    return RepaintBoundary(
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          IconButton(
-            onPressed: onPressed,
-            iconSize: 28,
-            color: color,
-            icon: Icon(icon),
-          ),
-          SizedBox(
-            width: double.infinity,
-            child: Text(
-              label,
-              textAlign: TextAlign.center,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(color: color),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _RepeatModeTile extends StatelessWidget {
-  final IconData icon;
-  final String label;
-  final bool isSelected;
-  final VoidCallback onTap;
-
-  const _RepeatModeTile({
-    required this.icon,
-    required this.label,
-    required this.isSelected,
-    required this.onTap,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    final primaryColor = Theme.of(context).colorScheme.primary;
-
-    return ListTile(
-      leading: Icon(icon, color: isSelected ? primaryColor : null),
-      title: Text(label),
-      selected: isSelected,
-      onTap: onTap,
     );
   }
 }
