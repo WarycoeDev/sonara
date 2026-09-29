@@ -135,6 +135,7 @@ class _PlayerLayout extends StatelessWidget {
     return Column(
       children: [
         _PlayerHeader(height: (60 * safeScale).clamp(48.0, 76.0).toDouble()),
+
         Expanded(
           child: Padding(
             padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
@@ -157,15 +158,27 @@ class _PlayerLayout extends StatelessWidget {
                         ),
                       );
                     },
+
+                    // IMPORTANTE:
+                    //
+                    // La key depende de song.id y coverPath.
+                    //
+                    // Cuando Android genera una nueva portada,
+                    // coverPath cambia y AnimatedSwitcher crea
+                    // un nuevo widget de artwork.
                     child: SizedBox(
-                      key: ValueKey<String>(song.id),
+                      key: ValueKey<String>(
+                        '${song.id}|${song.coverPath ?? ''}',
+                      ),
                       width: artworkSize,
                       height: artworkSize,
                       child: _AlbumArtwork(coverPath: song.coverPath),
                     ),
                   ),
                 ),
+
                 SizedBox(height: (18 * safeScale).clamp(10.0, 28.0).toDouble()),
+
                 AnimatedSwitcher(
                   duration: const Duration(milliseconds: 350),
                   switchInCurve: Curves.easeOut,
@@ -185,25 +198,232 @@ class _PlayerLayout extends StatelessWidget {
                     );
                   },
                   child: _SongInformation(
-                    key: ValueKey<String>(song.id),
+                    key: ValueKey<String>(
+                      '${song.id}|${song.title}|${song.artist ?? ''}',
+                    ),
                     title: song.title,
                     artist: song.artist,
                     safeScale: safeScale,
                   ),
                 ),
+
                 SizedBox(height: (12 * safeScale).clamp(8.0, 20.0).toDouble()),
+
                 const _ProgressSection(),
+
                 SizedBox(height: (8 * safeScale).clamp(4.0, 16.0).toDouble()),
+
                 _PlaybackControls(safeScale: safeScale),
+
                 SizedBox(height: (32 * safeScale).clamp(14.0, 32.0).toDouble()),
+
                 const _PlayerTools(),
+
                 const Spacer(),
+
                 const SizedBox(height: 12),
               ],
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+class _AlbumArtwork extends StatelessWidget {
+  final String? coverPath;
+
+  const _AlbumArtwork({required this.coverPath});
+
+  @override
+  Widget build(BuildContext context) {
+    final path = coverPath;
+
+    if (path == null || path.isEmpty) {
+      return _buildDefaultArtwork(context);
+    }
+
+    if (path.startsWith('content://')) {
+      return _AndroidAlbumArtwork(contentUri: path);
+    }
+
+    return _buildFileArtwork(context, path);
+  }
+
+  Widget _buildFileArtwork(BuildContext context, String path) {
+    final file = File(path);
+
+    if (!file.existsSync()) {
+      return _buildDefaultArtwork(context);
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Image.file(
+          file,
+          width: double.infinity,
+          height: double.infinity,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.high,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) {
+            return const _DefaultArtwork();
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDefaultArtwork(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: const _DefaultArtwork(),
+      ),
+    );
+  }
+}
+
+class _AndroidAlbumArtwork extends StatefulWidget {
+  final String contentUri;
+
+  const _AndroidAlbumArtwork({required this.contentUri});
+
+  @override
+  State<_AndroidAlbumArtwork> createState() => _AndroidAlbumArtworkState();
+}
+
+class _AndroidAlbumArtworkState extends State<_AndroidAlbumArtwork> {
+  static const MethodChannel _mediaStoreChannel = MethodChannel(
+    'sonara/media_store',
+  );
+
+  Uint8List? _bytes;
+  bool _isLoading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadArtwork();
+  }
+
+  @override
+  void didUpdateWidget(covariant _AndroidAlbumArtwork oldWidget) {
+    super.didUpdateWidget(oldWidget);
+
+    if (oldWidget.contentUri != widget.contentUri) {
+      _bytes = null;
+      _isLoading = true;
+
+      _loadArtwork();
+    }
+  }
+
+  Future<void> _loadArtwork() async {
+    try {
+      final result = await _mediaStoreChannel.invokeMethod<dynamic>(
+        'readContentUri',
+        <String, dynamic>{'uri': widget.contentUri},
+      );
+
+      if (!mounted) {
+        return;
+      }
+
+      if (result is Uint8List) {
+        setState(() {
+          _bytes = result;
+          _isLoading = false;
+        });
+
+        return;
+      }
+
+      if (result is List) {
+        setState(() {
+          _bytes = Uint8List.fromList(result.cast<int>());
+          _isLoading = false;
+        });
+
+        return;
+      }
+
+      setState(() {
+        _bytes = null;
+        _isLoading = false;
+      });
+    } catch (_) {
+      if (!mounted) {
+        return;
+      }
+
+      setState(() {
+        _bytes = null;
+        _isLoading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bytes = _bytes;
+
+    if (bytes == null || bytes.isEmpty) {
+      if (_isLoading) {
+        return ColoredBox(
+          color: Theme.of(context).colorScheme.surfaceContainerHighest,
+          child: const SizedBox.expand(),
+        );
+      }
+
+      return _buildDefaultArtwork(context);
+    }
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: Image.memory(
+          bytes,
+          width: double.infinity,
+          height: double.infinity,
+          fit: BoxFit.cover,
+          filterQuality: FilterQuality.high,
+          gaplessPlayback: true,
+          errorBuilder: (context, error, stackTrace) {
+            return const _DefaultArtwork();
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _buildDefaultArtwork(BuildContext context) {
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(24),
+      child: ColoredBox(
+        color: Theme.of(context).colorScheme.surfaceContainerHighest,
+        child: const _DefaultArtwork(),
+      ),
+    );
+  }
+}
+
+class _DefaultArtwork extends StatelessWidget {
+  const _DefaultArtwork();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Icon(
+        Icons.music_note,
+        size: 120,
+        color: Theme.of(context).colorScheme.primary,
+      ),
     );
   }
 }
@@ -228,13 +448,14 @@ class _PlayerHeader extends StatelessWidget {
             icon: const Icon(Icons.keyboard_arrow_down),
             tooltip: l10n.minimizePlayer,
           ),
+
           Expanded(child: Text(l10n.nowPlaying, textAlign: TextAlign.center)),
+
           IconButton(
             onPressed: () async {
               final controller = context.read<PlayerController>();
 
               await controller.removeCurrentSong();
-
               await controller.clearQueue();
 
               if (context.mounted) {
@@ -279,8 +500,10 @@ class _SongInformation extends StatelessWidget {
             padding: EdgeInsets.symmetric(horizontal: titleHorizontalPadding),
             child: _ScrollingSongTitle(title: title, safeScale: safeScale),
           ),
+
           if (hasArtist) ...[
             const SizedBox(height: 6),
+
             Text(
               artist!,
               maxLines: 1,
@@ -316,11 +539,6 @@ class _ScrollingSongTitleState extends State<_ScrollingSongTitle> {
 
   static const double _gap = 48.0;
   static const double _extraEndSpace = 8.0;
-
-  @override
-  void initState() {
-    super.initState();
-  }
 
   @override
   void didUpdateWidget(covariant _ScrollingSongTitle oldWidget) {
@@ -434,9 +652,6 @@ class _ScrollingSongTitleState extends State<_ScrollingSongTitle> {
       return;
     }
 
-    // El contenido está duplicado. Al llegar aquí, la segunda copia
-    // ocupa exactamente la posición visual de la primera, por lo que
-    // volver a 0 no produce un salto visible.
     _scrollController.jumpTo(0);
 
     if (!mounted || generation != _generation) {
@@ -472,8 +687,6 @@ class _ScrollingSongTitleState extends State<_ScrollingSongTitle> {
           );
         }
 
-        // Se agregan 8 px adicionales al recorrido para que la última
-        // letra tenga espacio suficiente y nunca quede cortada.
         final distance =
             textWidth +
             (_gap * widget.safeScale) +
@@ -570,6 +783,7 @@ class _ProgressSectionState extends State<_ProgressSection> {
                   }
                 },
               ),
+
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 12),
                 child: Row(
@@ -593,7 +807,9 @@ class _ProgressSectionState extends State<_ProgressSection> {
     }
 
     final totalSeconds = duration.inSeconds;
+
     final minutes = totalSeconds ~/ 60;
+
     final seconds = totalSeconds % 60;
 
     return '$minutes:${seconds.toString().padLeft(2, '0')}';
@@ -630,6 +846,7 @@ class _PlaybackControls extends StatelessWidget {
               icon: const Icon(Icons.skip_previous),
               tooltip: l10n.previous,
             ),
+
             FilledButton(
               onPressed: controller.togglePlayPause,
               style: FilledButton.styleFrom(
@@ -643,6 +860,7 @@ class _PlaybackControls extends StatelessWidget {
                 size: (42 * safeScale).clamp(30.0, 56.0).toDouble(),
               ),
             ),
+
             IconButton(
               onPressed: state.hasNext ? controller.playNext : null,
               iconSize: (36 * safeScale).clamp(26.0, 48.0).toDouble(),
@@ -677,6 +895,7 @@ class _PlayerTools extends StatelessWidget {
                 },
               ),
             ),
+
             Expanded(
               child: _PlayerOptionButton(
                 icon: _repeatIcon(repeatMode),
@@ -687,6 +906,7 @@ class _PlayerTools extends StatelessWidget {
                 },
               ),
             ),
+
             Expanded(
               child: _PlayerOptionButton(
                 icon: Icons.queue_music,
@@ -734,6 +954,7 @@ class _PlayerTools extends StatelessWidget {
                       }
                     },
                   ),
+
                   const SizedBox(height: 12),
                 ],
               ),
@@ -834,6 +1055,7 @@ class _ModesSheet extends StatelessWidget {
                   controller.toggleShuffle();
                 },
               ),
+
               _RepeatModeTile(
                 icon: Icons.repeat,
                 label: l10n.repeatOff,
@@ -844,6 +1066,7 @@ class _ModesSheet extends StatelessWidget {
                   Navigator.of(sheetContext, rootNavigator: true).pop();
                 },
               ),
+
               _RepeatModeTile(
                 icon: Icons.repeat_one,
                 label: l10n.repeatSong,
@@ -854,6 +1077,7 @@ class _ModesSheet extends StatelessWidget {
                   Navigator.of(sheetContext, rootNavigator: true).pop();
                 },
               ),
+
               _RepeatModeTile(
                 icon: Icons.repeat,
                 label: l10n.repeatQueue,
@@ -864,6 +1088,7 @@ class _ModesSheet extends StatelessWidget {
                   Navigator.of(sheetContext, rootNavigator: true).pop();
                 },
               ),
+
               const SizedBox(height: 12),
             ],
           ),
@@ -895,6 +1120,7 @@ class _QueueSheet extends StatelessWidget {
                 ),
               ),
             ),
+
             Expanded(
               child:
                   Selector<
@@ -1094,6 +1320,7 @@ class _QueueArtwork extends StatelessWidget {
             },
           ),
         ),
+
         if (isCurrent)
           _QueuePlayingOverlay(size: size, borderRadius: borderRadius),
       ],
@@ -1237,6 +1464,7 @@ class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
             },
           ),
         ),
+
         if (widget.isCurrent)
           _QueuePlayingOverlay(
             size: widget.size,
@@ -1358,202 +1586,6 @@ class _RepeatModeTile extends StatelessWidget {
       title: Text(label),
       selected: isSelected,
       onTap: onTap,
-    );
-  }
-}
-
-class _AlbumArtwork extends StatelessWidget {
-  final String? coverPath;
-
-  const _AlbumArtwork({required this.coverPath});
-
-  @override
-  Widget build(BuildContext context) {
-    final path = coverPath;
-
-    if (path == null || path.isEmpty) {
-      return _buildDefaultArtwork(context);
-    }
-
-    if (path.startsWith('content://')) {
-      return _AndroidAlbumArtwork(contentUri: path);
-    }
-
-    return _buildFileArtwork(context, path);
-  }
-
-  Widget _buildFileArtwork(BuildContext context, String path) {
-    final file = File(path);
-
-    if (!file.existsSync()) {
-      return _buildDefaultArtwork(context);
-    }
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: Image.file(
-          file,
-          width: double.infinity,
-          height: double.infinity,
-          fit: BoxFit.cover,
-          filterQuality: FilterQuality.high,
-          gaplessPlayback: true,
-          errorBuilder: (context, error, stackTrace) {
-            return const _DefaultArtwork();
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDefaultArtwork(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: const _DefaultArtwork(),
-      ),
-    );
-  }
-}
-
-class _AndroidAlbumArtwork extends StatefulWidget {
-  final String contentUri;
-
-  const _AndroidAlbumArtwork({required this.contentUri});
-
-  @override
-  State<_AndroidAlbumArtwork> createState() => _AndroidAlbumArtworkState();
-}
-
-class _AndroidAlbumArtworkState extends State<_AndroidAlbumArtwork> {
-  static const MethodChannel _mediaStoreChannel = MethodChannel(
-    'sonara/media_store',
-  );
-
-  Uint8List? _bytes;
-  bool _isLoading = true;
-
-  @override
-  void initState() {
-    super.initState();
-    _loadArtwork();
-  }
-
-  @override
-  void didUpdateWidget(covariant _AndroidAlbumArtwork oldWidget) {
-    super.didUpdateWidget(oldWidget);
-
-    if (oldWidget.contentUri != widget.contentUri) {
-      _bytes = null;
-      _isLoading = true;
-      _loadArtwork();
-    }
-  }
-
-  Future<void> _loadArtwork() async {
-    try {
-      final result = await _mediaStoreChannel.invokeMethod<dynamic>(
-        'readContentUri',
-        <String, dynamic>{'uri': widget.contentUri},
-      );
-
-      if (!mounted) {
-        return;
-      }
-
-      if (result is Uint8List) {
-        setState(() {
-          _bytes = result;
-          _isLoading = false;
-        });
-
-        return;
-      }
-
-      if (result is List) {
-        setState(() {
-          _bytes = Uint8List.fromList(result.cast<int>());
-          _isLoading = false;
-        });
-
-        return;
-      }
-
-      setState(() {
-        _bytes = null;
-        _isLoading = false;
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _bytes = null;
-        _isLoading = false;
-      });
-    }
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final bytes = _bytes;
-
-    if (bytes == null || bytes.isEmpty) {
-      if (_isLoading) {
-        return ColoredBox(
-          color: Theme.of(context).colorScheme.surfaceContainerHighest,
-          child: const SizedBox.expand(),
-        );
-      }
-
-      return _buildDefaultArtwork(context);
-    }
-
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: Image.memory(
-          bytes,
-          width: double.infinity,
-          height: double.infinity,
-          fit: BoxFit.cover,
-          filterQuality: FilterQuality.high,
-          gaplessPlayback: true,
-          errorBuilder: (context, error, stackTrace) {
-            return const _DefaultArtwork();
-          },
-        ),
-      ),
-    );
-  }
-
-  Widget _buildDefaultArtwork(BuildContext context) {
-    return ClipRRect(
-      borderRadius: BorderRadius.circular(24),
-      child: ColoredBox(
-        color: Theme.of(context).colorScheme.surfaceContainerHighest,
-        child: const _DefaultArtwork(),
-      ),
-    );
-  }
-}
-
-class _DefaultArtwork extends StatelessWidget {
-  const _DefaultArtwork();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Icon(
-        Icons.music_note,
-        size: 120,
-        color: Theme.of(context).colorScheme.primary,
-      ),
     );
   }
 }

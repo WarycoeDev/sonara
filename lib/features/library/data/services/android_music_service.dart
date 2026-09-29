@@ -13,7 +13,9 @@ class AndroidMusicService {
 
   Future<List<Song>>? _loadingFuture;
 
+  // ============================================================
   // ACTUALIZAR BIBLIOTECA
+  // ============================================================
 
   Future<List<Song>> refreshLibrary(List<Song> cachedSongs) async {
     if (!Platform.isAndroid) {
@@ -76,11 +78,26 @@ class AndroidMusicService {
 
       final cachedSong = cachedByPath[filePath];
 
-      if (_isSameFile(cachedSong, lastModified, fileSize)) {
-        updatedSongs.add(cachedSong!);
+      final isSameFile = _isSameFile(cachedSong, lastModified, fileSize);
+
+      if (isSameFile) {
+        final songWithValidCover = await _ensureCachedCoverExists(cachedSong!);
+
+        updatedSongs.add(songWithValidCover);
+
+        print(
+          '[SONARA ANDROID SCAN] '
+          'Sin cambios: $filePath',
+        );
 
         continue;
       }
+
+      print(
+        '[SONARA ANDROID SCAN] '
+        '${cachedSong == null ? 'Archivo nuevo' : 'Archivo modificado'}: '
+        '$filePath',
+      );
 
       final song = await _loadSongMetadata(
         filePath: filePath,
@@ -107,7 +124,72 @@ class AndroidMusicService {
     return song.fileLastModified == lastModified && song.fileSize == fileSize;
   }
 
+  // ============================================================
+  // VERIFICAR CARÁTULA CACHEADA
+  // ============================================================
+
+  Future<Song> _ensureCachedCoverExists(Song song) async {
+    final coverPath = song.coverPath;
+
+    if (coverPath == null || coverPath.isEmpty) {
+      print(
+        '[SONARA ANDROID COVER] '
+        'La canción no tiene portada. '
+        'Regenerando: ${song.filePath}',
+      );
+
+      final newCover = await _artworkService.extractCover(
+        filePath: song.filePath,
+        songId: song.id,
+        fileSize: song.fileSize,
+        fileLastModified: song.fileLastModified,
+        forceRefresh: true,
+      );
+
+      return song.copyWith(coverPath: newCover);
+    }
+
+    final isRemoteCover =
+        coverPath.startsWith('content://') ||
+        coverPath.startsWith('http://') ||
+        coverPath.startsWith('https://');
+
+    if (isRemoteCover) {
+      return song;
+    }
+
+    final coverFile = File(coverPath);
+
+    if (await coverFile.exists()) {
+      try {
+        final length = await coverFile.length();
+
+        if (length > 0) {
+          return song;
+        }
+      } catch (_) {}
+    }
+
+    print(
+      '[SONARA ANDROID COVER] '
+      'La portada cacheada ya no existe. '
+      'Regenerando: ${song.filePath}',
+    );
+
+    final newCover = await _artworkService.extractCover(
+      filePath: song.filePath,
+      songId: song.id,
+      fileSize: song.fileSize,
+      fileLastModified: song.fileLastModified,
+      forceRefresh: true,
+    );
+
+    return song.copyWith(coverPath: newCover);
+  }
+
+  // ============================================================
   // PERMISO
+  // ============================================================
 
   Future<bool> _requestAudioPermission() async {
     try {
@@ -127,7 +209,9 @@ class AndroidMusicService {
     }
   }
 
+  // ============================================================
   // LEER METADATOS
+  // ============================================================
 
   Future<Song> _loadSongMetadata({
     required String filePath,
@@ -149,34 +233,73 @@ class AndroidMusicService {
 
       final id = data['id']?.toString() ?? filePath;
 
+      // ----------------------------------------------------------
+      // CARÁTULA
+      // ----------------------------------------------------------
+
       final coverPath = await _getCover(
         filePath: filePath,
         songId: id,
+        fileSize: fileSize,
+        lastModified: lastModified,
         previousSong: previousSong,
+      );
+
+      // ----------------------------------------------------------
+      // TÍTULO
+      // ----------------------------------------------------------
+
+      String title;
+
+      final metadataTitle = data['title']?.toString();
+
+      final previousTitle = previousSong?.title;
+
+      final previousTitleIsValid =
+          previousTitle != null &&
+          previousTitle.isNotEmpty &&
+          previousTitle != previousSong?.filePath &&
+          !previousTitle.startsWith('/');
+
+      if (metadataTitle != null && metadataTitle.isNotEmpty) {
+        title = metadataTitle;
+      } else if (previousTitleIsValid) {
+        title = previousTitle;
+      } else {
+        title = _titleFromPath(filePath);
+      }
+
+      print(
+        '[SONARA ANDROID SCAN] '
+        'Título: "$title"',
       );
 
       return Song(
         id: id,
         filePath: filePath,
-        title: data['title']?.toString() ?? _titleFromPath(filePath),
+        title: title,
         artist: data['artist'] as String?,
         album: data['album'] as String?,
         duration: Duration(milliseconds: _readInt(data['duration']) ?? 0),
         coverPath: coverPath,
-        dateAdded: DateTime.fromMillisecondsSinceEpoch(
-          _readInt(data['dateAdded']) ??
-              lastModified ??
-              DateTime.now().millisecondsSinceEpoch,
-        ),
+
+        // Mantener la fecha original de la canción.
+        dateAdded:
+            previousSong?.dateAdded ??
+            DateTime.fromMillisecondsSinceEpoch(
+              _readInt(data['dateAdded']) ??
+                  lastModified ??
+                  DateTime.now().millisecondsSinceEpoch,
+            ),
+
         source: SongSource.local,
+
         isFavorite: previousSong?.isFavorite ?? false,
+
         fileLastModified: lastModified,
         fileSize: fileSize,
 
-        // IMPORTANTE:
-        //
-        // ReplayGain se recalcula después en LocalLibraryRepository si el
-        // archivo cambió.
+        // ReplayGain se recalcula después.
         volumeGain: null,
       );
     } catch (error) {
@@ -188,23 +311,38 @@ class AndroidMusicService {
       );
 
       return Song(
-        id: filePath,
+        id: previousSong?.id ?? filePath,
         filePath: filePath,
-        title: _titleFromPath(filePath),
-        duration: Duration.zero,
-        dateAdded: DateTime.fromMillisecondsSinceEpoch(
-          lastModified ?? DateTime.now().millisecondsSinceEpoch,
-        ),
+
+        // Nunca reemplazar el título existente por la ruta.
+        title: previousSong?.title ?? _titleFromPath(filePath),
+
+        artist: previousSong?.artist,
+        album: previousSong?.album,
+        duration: previousSong?.duration ?? Duration.zero,
+        coverPath: previousSong?.coverPath,
+
+        dateAdded:
+            previousSong?.dateAdded ??
+            DateTime.fromMillisecondsSinceEpoch(
+              lastModified ?? DateTime.now().millisecondsSinceEpoch,
+            ),
+
         source: SongSource.local,
+
         isFavorite: previousSong?.isFavorite ?? false,
+
         fileLastModified: lastModified,
         fileSize: fileSize,
+
         volumeGain: null,
       );
     }
   }
 
+  // ============================================================
   // REPLAYGAIN
+  // ============================================================
 
   Future<double?> calculateTrackGain(String filePath) async {
     if (!Platform.isAndroid) {
@@ -256,31 +394,80 @@ class AndroidMusicService {
     }
   }
 
+  // ============================================================
   // CARÁTULA
+  // ============================================================
 
   Future<String?> _getCover({
     required String filePath,
     required String songId,
+    required int? fileSize,
+    required int? lastModified,
     required Song? previousSong,
   }) async {
-    final previousCoverPath = previousSong?.coverPath;
+    // Si la canción ya existía, significa que el archivo cambió.
+    //
+    // Por lo tanto NO reutilizamos previousSong.coverPath.
+    //
+    // Primero eliminamos la portada vieja del cache.
+    await _deletePreviousArtwork(previousSong);
 
-    if (previousCoverPath != null && previousCoverPath.isNotEmpty) {
-      final previousCover = File(previousCoverPath);
+    print(
+      '[SONARA ANDROID COVER] '
+      'Extrayendo nueva portada: $filePath',
+    );
 
-      if (await previousCover.exists()) {
-        try {
-          if (await previousCover.length() > 0) {
-            return previousCoverPath;
-          }
-        } catch (_) {}
-      }
-    }
-
-    return _artworkService.extractCover(filePath: filePath, songId: songId);
+    return _artworkService.extractCover(
+      filePath: filePath,
+      songId: songId,
+      fileSize: fileSize,
+      fileLastModified: lastModified,
+      forceRefresh: true,
+    );
   }
 
+  Future<void> _deletePreviousArtwork(Song? previousSong) async {
+    final previousCoverPath = previousSong?.coverPath;
+
+    if (previousCoverPath == null || previousCoverPath.isEmpty) {
+      return;
+    }
+
+    final isRemoteCover =
+        previousCoverPath.startsWith('content://') ||
+        previousCoverPath.startsWith('http://') ||
+        previousCoverPath.startsWith('https://');
+
+    if (isRemoteCover) {
+      return;
+    }
+
+    try {
+      final previousCover = File(previousCoverPath);
+
+      if (!await previousCover.exists()) {
+        return;
+      }
+
+      await previousCover.delete();
+
+      print(
+        '[SONARA ANDROID COVER CACHE] '
+        'Carátula anterior eliminada: '
+        '$previousCoverPath',
+      );
+    } catch (error) {
+      print(
+        '[SONARA ANDROID COVER CACHE] '
+        'No se pudo eliminar la carátula anterior: '
+        '$error',
+      );
+    }
+  }
+
+  // ============================================================
   // UTILIDADES
+  // ============================================================
 
   int? _readInt(dynamic value) {
     if (value is num) {

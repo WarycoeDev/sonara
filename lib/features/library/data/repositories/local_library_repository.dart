@@ -54,7 +54,9 @@ class LocalLibraryRepository implements LibraryRepository {
 
   bool _hasLoaded = false;
 
+  // ===========================================================================
   // OBTENER CANCIONES
+  // ===========================================================================
 
   @override
   Future<List<Song>> getSongs() async {
@@ -63,7 +65,17 @@ class LocalLibraryRepository implements LibraryRepository {
     return _songsView;
   }
 
+  /// Devuelve la biblioteca actual después de un escaneo/refresco.
+  ///
+  /// Se utiliza para sincronizar otros componentes que mantienen
+  /// referencias propias a las Song, como PlayerController.
+  List<Song> get currentSongs {
+    return List<Song>.unmodifiable(_songs);
+  }
+
+  // ===========================================================================
   // CARGAR CACHÉ
+  // ===========================================================================
 
   Future<void> _ensureLibraryLoaded() async {
     if (_hasLoaded) {
@@ -120,7 +132,9 @@ class LocalLibraryRepository implements LibraryRepository {
     }
   }
 
+  // ===========================================================================
   // ESCANEAR BIBLIOTECA
+  // ===========================================================================
 
   @override
   Future<void> scanLibrary() async {
@@ -141,12 +155,6 @@ class LocalLibraryRepository implements LibraryRepository {
     _scanFuture = completer.future;
 
     try {
-      // Conservamos el estado anterior para:
-      //
-      // - reutilizar metadatos;
-      // - reutilizar favoritos;
-      // - reutilizar ReplayGain;
-      // - detectar archivos modificados.
       final previousSongs = List<Song>.from(_songs);
 
       if (Platform.isAndroid) {
@@ -154,10 +162,9 @@ class LocalLibraryRepository implements LibraryRepository {
       } else if (Platform.isLinux) {
         await _scanLinuxLibrary(previousSongs);
       } else {
-        await _scanDesktopLibrary();
+        await _scanDesktopLibrary(previousSongs);
       }
 
-      // ReplayGain se aplica únicamente después de terminar el escaneo.
       await _applyReplayGain(previousSongs);
 
       await _libraryCacheService.saveSongs(_songs);
@@ -179,7 +186,9 @@ class LocalLibraryRepository implements LibraryRepository {
     }
   }
 
+  // ===========================================================================
   // ANDROID
+  // ===========================================================================
 
   Future<void> _scanAndroidLibrary() async {
     final songs = await _androidMusicService.refreshLibrary(
@@ -189,7 +198,9 @@ class LocalLibraryRepository implements LibraryRepository {
     _replaceSongs(songs);
   }
 
+  // ===========================================================================
   // LINUX
+  // ===========================================================================
 
   Future<void> _scanLinuxLibrary(List<Song> previousSongs) async {
     final directoryPaths = await _musicDirectoryService.getMusicDirectories();
@@ -221,12 +232,6 @@ class LocalLibraryRepository implements LibraryRepository {
     List<File> files,
     Map<String, Song> previousByPath,
   ) async {
-    // Lectura de metadatos con concurrencia limitada.
-    //
-    // Evitamos:
-    // - abrir demasiados archivos;
-    // - saturar procesos externos;
-    // - crear cientos de tareas simultáneamente.
     const concurrency = 4;
 
     final results = List<Song?>.filled(files.length, null);
@@ -254,9 +259,11 @@ class LocalLibraryRepository implements LibraryRepository {
     return results.whereType<Song>().toList(growable: false);
   }
 
+  // ===========================================================================
   // DESKTOP
+  // ===========================================================================
 
-  Future<void> _scanDesktopLibrary() async {
+  Future<void> _scanDesktopLibrary(List<Song> previousSongs) async {
     final directoryPaths = await _musicDirectoryService.getMusicDirectories();
 
     if (directoryPaths.isEmpty) {
@@ -267,16 +274,318 @@ class LocalLibraryRepository implements LibraryRepository {
 
     final files = await _scanner.scanDirectories(directoryPaths);
 
-    final songs = List<Song>.generate(
-      files.length,
-      (index) => _createSongFromFile(files[index]),
-      growable: false,
-    );
+    if (files.isEmpty) {
+      _replaceSongs(const <Song>[]);
+
+      return;
+    }
+
+    final previousByPath = <String, Song>{
+      for (final song in previousSongs) song.filePath: song,
+    };
+
+    final songs = <Song>[];
+
+    for (final file in files) {
+      final previous = previousByPath[file.path];
+
+      try {
+        final stat = await file.stat();
+
+        final isSameFile =
+            previous != null &&
+            previous.fileLastModified == stat.modified.millisecondsSinceEpoch &&
+            previous.fileSize == stat.size;
+
+        if (isSameFile) {
+          songs.add(previous);
+
+          continue;
+        }
+
+        songs.add(
+          Song(
+            id: file.path,
+            filePath: file.path,
+            title: _removeExtension(
+              file.path.split(Platform.pathSeparator).last,
+            ),
+            duration: Duration.zero,
+            dateAdded: previous?.dateAdded ?? stat.modified,
+            source: SongSource.local,
+            isFavorite: previous?.isFavorite ?? false,
+            fileLastModified: stat.modified.millisecondsSinceEpoch,
+            fileSize: stat.size,
+          ),
+        );
+      } catch (error) {
+        print(
+          '[SONARA LIBRARY] '
+          'No se pudo procesar: ${file.path}',
+        );
+
+        print('[SONARA LIBRARY] $error');
+      }
+    }
 
     _replaceSongs(songs);
   }
 
+  // ===========================================================================
+  // CREAR CANCIÓN LINUX
+  // ===========================================================================
+
+  Future<Song> _createLinuxSongFromFile(File file, Song? previousSong) async {
+    final stat = await file.stat();
+
+    final modified = stat.modified.millisecondsSinceEpoch;
+    final size = stat.size;
+
+    final isSameFile =
+        previousSong != null &&
+        previousSong.fileLastModified == modified &&
+        previousSong.fileSize == size;
+
+    print('[SONARA SCAN DEBUG]');
+    print('Archivo: ${file.path}');
+    print('Anterior size: ${previousSong?.fileSize}');
+    print('Actual size: $size');
+    print('Anterior modified: ${previousSong?.fileLastModified}');
+    print('Actual modified: $modified');
+    print('Título anterior: ${previousSong?.title}');
+
+    // ------------------------------------------------------------
+    // ARCHIVO SIN CAMBIOS
+    // ------------------------------------------------------------
+
+    if (isSameFile) {
+      final coverPath = previousSong!.coverPath;
+
+      if (coverPath == null || coverPath.isEmpty) {
+        print(
+          '[SONARA SCAN] '
+          'Sin cambios y sin portada: ${file.path}',
+        );
+
+        return previousSong;
+      }
+
+      final isRemoteCover =
+          coverPath.startsWith('content://') ||
+          coverPath.startsWith('http://') ||
+          coverPath.startsWith('https://');
+
+      if (isRemoteCover) {
+        print(
+          '[SONARA SCAN] '
+          'Sin cambios: ${file.path}',
+        );
+
+        return previousSong;
+      }
+
+      final coverFile = File(coverPath);
+
+      if (await coverFile.exists()) {
+        final coverLength = await coverFile.length();
+
+        if (coverLength > 0) {
+          print(
+            '[SONARA SCAN] '
+            'Sin cambios: ${file.path}',
+          );
+
+          return previousSong;
+        }
+      }
+
+      // La canción no cambió, pero su portada ya no existe.
+      print(
+        '[SONARA SCAN] '
+        'La portada cacheada ya no existe. '
+        'Regenerando: ${file.path}',
+      );
+
+      final metadata = await _linuxAudioMetadataService.readMetadata(
+        file.path,
+        fileSize: size,
+        fileLastModified: modified,
+      );
+
+      return previousSong.copyWith(
+        coverPath: metadata.coverPath,
+        artist: metadata.artist,
+        album: metadata.album,
+        duration: metadata.duration,
+      );
+    }
+
+    // ------------------------------------------------------------
+    // ARCHIVO MODIFICADO
+    // ------------------------------------------------------------
+
+    print(
+      '[SONARA SCAN] '
+      'Archivo modificado: ${file.path}',
+    );
+
+    if (previousSong != null) {
+      print(
+        '[SONARA SCAN] '
+        'Conservando título anterior: "${previousSong.title}"',
+      );
+
+      await _deletePreviousArtwork(previousSong);
+    } else {
+      print(
+        '[SONARA SCAN] '
+        'No existe canción anterior para: ${file.path}',
+      );
+    }
+
+    final metadata = await _linuxAudioMetadataService.readMetadata(
+      file.path,
+      fileSize: size,
+      fileLastModified: modified,
+    );
+
+    // ------------------------------------------------------------
+    // OBTENER TÍTULO
+    // ------------------------------------------------------------
+    //
+    // 1. Si ya existe una canción anterior y tiene título válido,
+    //    conservarlo.
+    //
+    // 2. Si no existe canción anterior, usar solamente el nombre
+    //    del archivo, NO la ruta completa.
+    //
+    // 3. Si por alguna razón el título anterior ya era una ruta,
+    //    no conservar esa ruta como título.
+    //
+
+    String title;
+
+    final previousTitle = previousSong?.title;
+
+    final previousTitleIsValid =
+        previousTitle != null &&
+        previousTitle.isNotEmpty &&
+        previousTitle != previousSong?.filePath &&
+        !previousTitle.startsWith('/');
+
+    if (previousTitleIsValid) {
+      title = previousTitle;
+    } else {
+      final fileName = file.uri.pathSegments.isNotEmpty
+          ? file.uri.pathSegments.last
+          : file.path;
+
+      final lastDot = fileName.lastIndexOf('.');
+
+      if (lastDot > 0) {
+        title = fileName.substring(0, lastDot);
+      } else {
+        title = fileName;
+      }
+    }
+
+    print(
+      '[SONARA SCAN] '
+      'Título final: "$title"',
+    );
+
+    // ------------------------------------------------------------
+    // CREAR SONG ACTUALIZADO
+    // ------------------------------------------------------------
+
+    return Song(
+      id: file.path,
+      filePath: file.path,
+
+      // IMPORTANTE:
+      // La ruta nunca se utiliza como título si ya existe
+      // un título válido.
+      title: title,
+
+      artist: metadata.artist,
+      album: metadata.album,
+      duration: metadata.duration,
+      coverPath: metadata.coverPath,
+
+      // La fecha de incorporación original no debe cambiar
+      // solamente porque se modificó la portada.
+      dateAdded: previousSong?.dateAdded ?? stat.modified,
+
+      source: SongSource.local,
+
+      // Mantener favoritos.
+      isFavorite: previousSong?.isFavorite ?? false,
+
+      // ReplayGain se encargará posteriormente de actualizar
+      // este valor si corresponde.
+      volumeGain: previousSong?.volumeGain,
+
+      fileLastModified: modified,
+      fileSize: size,
+    );
+  }
+
+  // ===========================================================================
+  // ELIMINAR CARÁTULA ANTERIOR
+  // ===========================================================================
+
+  Future<void> _deletePreviousArtwork(Song song) async {
+    final coverPath = song.coverPath;
+
+    if (coverPath == null || coverPath.isEmpty) {
+      return;
+    }
+
+    // No intentamos borrar:
+    //
+    // content://...
+    // http://...
+    // https://...
+    //
+    // porque no son archivos controlados por nuestro cache local.
+
+    if (coverPath.startsWith('content://') ||
+        coverPath.startsWith('http://') ||
+        coverPath.startsWith('https://')) {
+      return;
+    }
+
+    try {
+      final coverFile = File(coverPath);
+
+      if (!await coverFile.exists()) {
+        return;
+      }
+
+      await coverFile.delete();
+
+      print(
+        '[SONARA COVER CACHE] '
+        'Carátula anterior eliminada: '
+        '$coverPath',
+      );
+    } catch (error) {
+      print(
+        '[SONARA COVER CACHE] '
+        'No se pudo eliminar la carátula anterior: '
+        '$coverPath',
+      );
+
+      print(
+        '[SONARA COVER CACHE] '
+        '$error',
+      );
+    }
+  }
+
+  // ===========================================================================
   // REPLAYGAIN
+  // ===========================================================================
 
   Future<void> _applyReplayGain(List<Song> previousSongs) async {
     if (_songs.isEmpty) {
@@ -296,29 +605,11 @@ class LocalLibraryRepository implements LibraryRepository {
 
       final isSameFile = _isSameFile(previous, song);
 
-      // =====================================================================
-      // ARCHIVO SIN CAMBIOS
-      // =====================================================================
-      //
-      // Si el archivo es exactamente el mismo y anteriormente ya teníamos
-      // una ganancia calculada, reutilizamos ese valor.
-      // =====================================================================
-
       if (isSameFile && previous?.volumeGain != null) {
         _songs[index] = song.copyWith(volumeGain: previous!.volumeGain);
 
         continue;
       }
-
-      // =====================================================================
-      // ARCHIVO NUEVO O MODIFICADO
-      // =====================================================================
-      //
-      // Una ganancia existente solamente se conserva si sabemos que pertenece
-      // al archivo actual.
-      //
-      // Si el archivo cambió, la ganancia anterior deja de ser válida.
-      // =====================================================================
 
       if (!isSameFile && song.volumeGain != null) {
         _songs[index] = song.copyWith(volumeGain: null);
@@ -348,16 +639,6 @@ class LocalLibraryRepository implements LibraryRepository {
       '${pendingIndexes.length} pista(s)...',
     );
 
-    // Android utiliza MediaCodec.
-    //
-    // Ejecutar varios decoders simultáneamente puede provocar:
-    //
-    // - saturación;
-    // - mayor consumo;
-    // - errores de codec;
-    // - peor rendimiento.
-    //
-    // Linux/Desktop puede ejecutar varios análisis simultáneamente.
     final concurrency = Platform.isAndroid ? 1 : 3;
 
     for (var start = 0; start < pendingIndexes.length; start += concurrency) {
@@ -414,7 +695,6 @@ class LocalLibraryRepository implements LibraryRepository {
       return false;
     }
 
-    // Necesitamos ambos datos para considerar seguro reutilizar ReplayGain.
     if (previous.fileLastModified == null ||
         current.fileLastModified == null ||
         previous.fileSize == null ||
@@ -426,7 +706,9 @@ class LocalLibraryRepository implements LibraryRepository {
         previous.fileSize == current.fileSize;
   }
 
+  // ===========================================================================
   // ÁLBUMES
+  // ===========================================================================
 
   @override
   Future<List<Album>> getAlbums() async {
@@ -461,7 +743,9 @@ class LocalLibraryRepository implements LibraryRepository {
     return List<Album>.unmodifiable(albums);
   }
 
+  // ===========================================================================
   // ARTISTAS
+  // ===========================================================================
 
   @override
   Future<List<Artist>> getArtists() async {
@@ -492,7 +776,9 @@ class LocalLibraryRepository implements LibraryRepository {
     return List<Artist>.unmodifiable(artists);
   }
 
+  // ===========================================================================
   // BÚSQUEDA
+  // ===========================================================================
 
   @override
   Future<List<Song>> searchSongs(String query) async {
@@ -523,52 +809,9 @@ class LocalLibraryRepository implements LibraryRepository {
     return List<Song>.unmodifiable(results);
   }
 
-  // CREAR CANCIÓN LINUX
-
-  Future<Song> _createLinuxSongFromFile(File file, Song? previousSong) async {
-    final stat = await file.stat();
-
-    // Si el archivo no cambió, reutilizamos los metadatos completos.
-    if (previousSong != null &&
-        previousSong.fileLastModified == stat.modified.millisecondsSinceEpoch &&
-        previousSong.fileSize == stat.size) {
-      return previousSong;
-    }
-
-    final metadata = await _linuxAudioMetadataService.readMetadata(file.path);
-
-    return Song(
-      id: file.path,
-      filePath: file.path,
-      title: _removeExtension(file.path.split(Platform.pathSeparator).last),
-      artist: metadata.artist,
-      album: metadata.album,
-      duration: metadata.duration,
-      coverPath: metadata.coverPath,
-      dateAdded: stat.modified,
-      source: SongSource.local,
-      isFavorite: previousSong?.isFavorite ?? false,
-      fileLastModified: stat.modified.millisecondsSinceEpoch,
-      fileSize: stat.size,
-    );
-  }
-
-  // CREAR CANCIÓN DESKTOP
-
-  Song _createSongFromFile(File file) {
-    final fileName = file.path.split(Platform.pathSeparator).last;
-
-    return Song(
-      id: file.path,
-      filePath: file.path,
-      title: _removeExtension(fileName),
-      duration: Duration.zero,
-      dateAdded: DateTime.now(),
-      source: SongSource.local,
-    );
-  }
-
+  // ===========================================================================
   // REEMPLAZAR
+  // ===========================================================================
 
   void _replaceSongs(List<Song> songs) {
     _songs
@@ -580,7 +823,9 @@ class LocalLibraryRepository implements LibraryRepository {
     );
   }
 
+  // ===========================================================================
   // UTILIDADES
+  // ===========================================================================
 
   String _normalizeAlbum(String? album) {
     final value = album?.trim();

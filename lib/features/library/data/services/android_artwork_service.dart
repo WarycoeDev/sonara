@@ -8,6 +8,9 @@ class AndroidArtworkService {
   Future<String?> extractCover({
     required String filePath,
     required String songId,
+    int? fileSize,
+    int? fileLastModified,
+    bool forceRefresh = false,
   }) async {
     try {
       final audioFile = File(filePath);
@@ -21,54 +24,93 @@ class AndroidArtworkService {
         return null;
       }
 
-      // =======================================================================
-      // DIRECTORIO PERSISTENTE
-      // =======================================================================
+      // ========================================================
+      // DIRECTORIO DE CACHE
+      // ========================================================
 
-      final supportDirectory = await getApplicationSupportDirectory();
+      final temporaryDirectory = await getTemporaryDirectory();
 
       final artworkDirectory = Directory(
-        '${supportDirectory.path}'
+        '${temporaryDirectory.path}'
         '${Platform.pathSeparator}'
-        'sonara_artwork',
+        'sonara'
+        '${Platform.pathSeparator}'
+        'artwork',
       );
 
       if (!await artworkDirectory.exists()) {
         await artworkDirectory.create(recursive: true);
       }
 
-      final safeSongId = _sanitizeFileName(songId);
+      // ========================================================
+      // DATOS DEL ARCHIVO
+      // ========================================================
+
+      final actualSize = fileSize ?? await audioFile.length();
+
+      final actualModified =
+          fileLastModified ??
+          (await audioFile.stat()).modified.millisecondsSinceEpoch;
+
+      // ========================================================
+      // CACHE VERSIONADO
+      // ========================================================
+
+      final songHash = _simpleHash(songId);
+
+      final cacheKey = '${songHash}_${actualSize}_$actualModified';
 
       final coverPath =
           '${artworkDirectory.path}'
           '${Platform.pathSeparator}'
-          '$safeSongId.sonara-cover.jpg';
+          '$cacheKey.sonara-cover.jpg';
 
       final coverFile = File(coverPath);
 
-      // =======================================================================
-      // REUTILIZAR PORTADA EXISTENTE
-      // =======================================================================
+      // ========================================================
+      // USAR CACHE EXISTENTE
+      // ========================================================
 
-      if (await coverFile.exists()) {
+      if (!forceRefresh && await coverFile.exists()) {
         final length = await coverFile.length();
 
         if (length > 0) {
+          print(
+            '[SONARA ANDROID COVER] '
+            'Usando portada cacheada: '
+            '$coverPath',
+          );
+
           return coverPath;
         }
+      }
 
+      // ========================================================
+      // SI forceRefresh, ELIMINAR VERSION ACTUAL
+      // ========================================================
+
+      if (forceRefresh) {
         try {
-          await coverFile.delete();
+          if (await coverFile.exists()) {
+            await coverFile.delete();
+
+            print(
+              '[SONARA ANDROID COVER CACHE] '
+              'Versión actual eliminada: '
+              '$coverPath',
+            );
+          }
         } catch (_) {}
       }
 
-      // =======================================================================
-      // EXTRAER
-      // =======================================================================
+      // ========================================================
+      // EXTRAER PORTADA
+      // ========================================================
 
       print(
         '[SONARA ANDROID COVER] '
-        'Extrayendo portada: $filePath',
+        'Extrayendo nueva portada: '
+        '$filePath',
       );
 
       final command = [
@@ -99,7 +141,17 @@ class AndroidArtworkService {
         return null;
       }
 
+      // ========================================================
+      // VALIDAR ARCHIVO
+      // ========================================================
+
       if (!await coverFile.exists()) {
+        print(
+          '[SONARA ANDROID COVER] '
+          'FFmpeg terminó correctamente, '
+          'pero no creó la portada.',
+        );
+
         return null;
       }
 
@@ -113,22 +165,92 @@ class AndroidArtworkService {
         return null;
       }
 
+      print(
+        '[SONARA ANDROID COVER] '
+        'Portada creada: $coverPath',
+      );
+
+      // ========================================================
+      // LIMPIAR VERSIONES ANTERIORES
+      // ========================================================
+
+      await _removeOldVersions(artworkDirectory, songHash, coverFile);
+
       return coverPath;
     } catch (error) {
       print(
         '[SONARA ANDROID COVER] '
-        'Error: $error',
+        'Error extrayendo portada: '
+        '$error',
       );
 
       return null;
     }
   }
 
-  String _sanitizeFileName(String value) {
-    final sanitized = value.replaceAll(RegExp(r'[^a-zA-Z0-9._-]'), '_');
+  // ============================================================
+  // ELIMINAR VERSIONES ANTERIORES
+  // ============================================================
 
-    return sanitized.isEmpty ? 'unknown' : sanitized;
+  Future<void> _removeOldVersions(
+    Directory artworkDirectory,
+    String songHash,
+    File currentCover,
+  ) async {
+    try {
+      await for (final entity in artworkDirectory.list()) {
+        if (entity is! File) {
+          continue;
+        }
+
+        if (entity.path == currentCover.path) {
+          continue;
+        }
+
+        final fileName = entity.uri.pathSegments.last;
+
+        if (!fileName.startsWith('${songHash}_')) {
+          continue;
+        }
+
+        try {
+          await entity.delete();
+
+          print(
+            '[SONARA ANDROID COVER CACHE] '
+            'Versión anterior eliminada: '
+            '${entity.path}',
+          );
+        } catch (_) {}
+      }
+    } catch (error) {
+      print(
+        '[SONARA ANDROID COVER CACHE] '
+        'No se pudieron limpiar versiones antiguas: '
+        '$error',
+      );
+    }
   }
+
+  // ============================================================
+  // HASH
+  // ============================================================
+
+  String _simpleHash(String value) {
+    var hash = 0x811c9dc5;
+
+    for (final codeUnit in value.codeUnits) {
+      hash ^= codeUnit;
+
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+
+    return hash.toRadixString(16);
+  }
+
+  // ============================================================
+  // QUOTE FFmpeg
+  // ============================================================
 
   String _quoteArgument(String value) {
     return "'${value.replaceAll("'", "'\\''")}'";

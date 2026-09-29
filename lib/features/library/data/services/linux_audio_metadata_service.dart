@@ -1,6 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
+import 'package:path_provider/path_provider.dart';
+
 class LinuxAudioMetadata {
   final String? artist;
   final String? album;
@@ -16,7 +18,11 @@ class LinuxAudioMetadata {
 }
 
 class LinuxAudioMetadataService {
-  Future<LinuxAudioMetadata> readMetadata(String filePath) async {
+  Future<LinuxAudioMetadata> readMetadata(
+    String filePath, {
+    int? fileSize,
+    int? fileLastModified,
+  }) async {
     try {
       final result = await Process.run('ffprobe', [
         '-v',
@@ -29,9 +35,15 @@ class LinuxAudioMetadataService {
       ]);
 
       if (result.exitCode != 0) {
-        print('[SONARA COVER] ffprobe fallo para: $filePath');
+        print(
+          '[SONARA COVER] '
+          'ffprobe fallo para: $filePath',
+        );
 
-        print('[SONARA COVER] stderr: ${result.stderr}');
+        print(
+          '[SONARA COVER] '
+          'stderr: ${result.stderr}',
+        );
 
         return const LinuxAudioMetadata(duration: Duration.zero);
       }
@@ -56,11 +68,18 @@ class LinuxAudioMetadataService {
 
       final duration = Duration(milliseconds: (durationValue * 1000).round());
 
-      final coverPath = await _extractCover(filePath);
+      final coverPath = await _extractCover(
+        filePath,
+        fileSize: fileSize,
+        fileLastModified: fileLastModified,
+      );
 
       print('[SONARA COVER] $filePath');
 
-      print('[SONARA COVER] portada: $coverPath');
+      print(
+        '[SONARA COVER] '
+        'portada: $coverPath',
+      );
 
       return LinuxAudioMetadata(
         artist: artist,
@@ -69,36 +88,99 @@ class LinuxAudioMetadataService {
         coverPath: coverPath,
       );
     } catch (error) {
-      print('[SONARA COVER] Error leyendo metadata de $filePath');
+      print(
+        '[SONARA COVER] '
+        'Error leyendo metadata de $filePath',
+      );
 
-      print('[SONARA COVER] $error');
+      print(
+        '[SONARA COVER] '
+        '$error',
+      );
 
       return const LinuxAudioMetadata(duration: Duration.zero);
     }
   }
 
-  Future<String?> _extractCover(String filePath) async {
+  Future<String?> _extractCover(
+    String filePath, {
+    int? fileSize,
+    int? fileLastModified,
+  }) async {
     try {
       final audioFile = File(filePath);
 
       if (!await audioFile.exists()) {
-        print('[SONARA COVER] El archivo no existe: $filePath');
+        print(
+          '[SONARA COVER] '
+          'El archivo no existe: $filePath',
+        );
 
         return null;
       }
 
-      final coverPath = '${audioFile.path}.sonara-cover.jpg';
+      final supportDirectory = await getTemporaryDirectory();
+
+      final artworkDirectory = Directory(
+        '${supportDirectory.path}'
+        '${Platform.pathSeparator}'
+        'sonara'
+        '${Platform.pathSeparator}'
+        'artwork',
+      );
+
+      if (!await artworkDirectory.exists()) {
+        await artworkDirectory.create(recursive: true);
+      }
+
+      final actualSize = fileSize ?? await audioFile.length();
+
+      final actualModified =
+          fileLastModified ??
+          (await audioFile.stat()).modified.millisecondsSinceEpoch;
+
+      final pathHash = _simpleHash(filePath);
+
+      final cacheKey = '${pathHash}_${actualSize}_$actualModified';
+
+      final coverPath =
+          '${artworkDirectory.path}'
+          '${Platform.pathSeparator}'
+          '$cacheKey.sonara-cover.jpg';
 
       final coverFile = File(coverPath);
 
-      // Si ya fue extraída anteriormente, reutilizamos la portada.
-      if (await coverFile.exists()) {
-        print('[SONARA COVER] Usando portada existente: $coverPath');
+      // =======================================================================
+      // CACHE VÁLIDO
+      // =======================================================================
 
-        return coverPath;
+      if (await coverFile.exists()) {
+        final length = await coverFile.length();
+
+        if (length > 0) {
+          print(
+            '[SONARA COVER] '
+            'Usando portada cacheada: '
+            '$coverPath',
+          );
+
+          return coverPath;
+        }
+
+        try {
+          await coverFile.delete();
+        } catch (_) {}
       }
 
-      print('[SONARA COVER] Extrayendo portada de: $filePath');
+      // =======================================================================
+      // EXTRAER NUEVA CARÁTULA
+      // =======================================================================
+
+      print(
+        '[SONARA COVER] '
+        'Extrayendo nueva portada: '
+        '$filePath',
+      );
 
       final result = await Process.run('ffmpeg', [
         '-y',
@@ -116,9 +198,15 @@ class LinuxAudioMetadataService {
       ]);
 
       if (result.exitCode != 0) {
-        print('[SONARA COVER] ffmpeg fallo para: $filePath');
+        print(
+          '[SONARA COVER] '
+          'ffmpeg fallo para: $filePath',
+        );
 
-        print('[SONARA COVER] stderr:');
+        print(
+          '[SONARA COVER] '
+          'stderr:',
+        );
 
         print(result.stderr);
 
@@ -127,22 +215,92 @@ class LinuxAudioMetadataService {
 
       if (!await coverFile.exists()) {
         print(
-          '[SONARA COVER] ffmpeg terminó correctamente, '
+          '[SONARA COVER] '
+          'ffmpeg terminó correctamente, '
           'pero no creó la portada.',
         );
-
-        print('[SONARA COVER] Ruta esperada: $coverPath');
 
         return null;
       }
 
-      print('[SONARA COVER] Portada creada: $coverPath');
+      final length = await coverFile.length();
+
+      if (length <= 0) {
+        try {
+          await coverFile.delete();
+        } catch (_) {}
+
+        return null;
+      }
+
+      print(
+        '[SONARA COVER] '
+        'Portada creada: $coverPath',
+      );
+
+      // Limpieza de versiones anteriores del mismo archivo.
+      await _removeOldVersions(artworkDirectory, pathHash, coverFile);
 
       return coverPath;
     } catch (error) {
-      print('[SONARA COVER] Error extrayendo portada: $error');
+      print(
+        '[SONARA COVER] '
+        'Error extrayendo portada: $error',
+      );
 
       return null;
     }
+  }
+
+  Future<void> _removeOldVersions(
+    Directory artworkDirectory,
+    String pathHash,
+    File currentCover,
+  ) async {
+    try {
+      await for (final entity in artworkDirectory.list()) {
+        if (entity is! File) {
+          continue;
+        }
+
+        if (entity.path == currentCover.path) {
+          continue;
+        }
+
+        final fileName = entity.uri.pathSegments.last;
+
+        if (!fileName.startsWith('${pathHash}_')) {
+          continue;
+        }
+
+        try {
+          await entity.delete();
+
+          print(
+            '[SONARA COVER CACHE] '
+            'Versión anterior eliminada: '
+            '${entity.path}',
+          );
+        } catch (_) {}
+      }
+    } catch (error) {
+      print(
+        '[SONARA COVER CACHE] '
+        'No se pudieron limpiar versiones antiguas: '
+        '$error',
+      );
+    }
+  }
+
+  String _simpleHash(String value) {
+    var hash = 0x811c9dc5;
+
+    for (final codeUnit in value.codeUnits) {
+      hash ^= codeUnit;
+
+      hash = (hash * 0x01000193) & 0xffffffff;
+    }
+
+    return hash.toRadixString(16);
   }
 }

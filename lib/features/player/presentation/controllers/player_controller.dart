@@ -20,7 +20,7 @@ class PlayerController extends ChangeNotifier {
 
   final Random _random = Random();
 
-  final List<Song> _queue = [];
+  final List<Song> _queue = <Song>[];
 
   Song? _currentSong;
 
@@ -87,7 +87,9 @@ class PlayerController extends ChangeNotifier {
     _listenToPlayer();
   }
 
+  // ---------------------------------------------------------------------------
   // GETTERS
+  // ---------------------------------------------------------------------------
 
   Song? get currentSong => _currentSong;
 
@@ -119,7 +121,7 @@ class PlayerController extends ChangeNotifier {
 
   Duration get displayDuration => _duration;
 
-  List<Song> get queue => List.unmodifiable(_queue);
+  List<Song> get queue => List<Song>.unmodifiable(_queue);
 
   int get currentIndex => _currentIndex;
 
@@ -156,7 +158,9 @@ class PlayerController extends ChangeNotifier {
     return _currentIndex > 0;
   }
 
+  // ---------------------------------------------------------------------------
   // STREAMS
+  // ---------------------------------------------------------------------------
 
   void _listenToPlayer() {
     _positionSubscription = _audioPlayerService.positionStream.listen(
@@ -176,7 +180,9 @@ class PlayerController extends ChangeNotifier {
     );
   }
 
-  // ÍNDICE
+  // ---------------------------------------------------------------------------
+  // ÍNDICE ACTUAL
+  // ---------------------------------------------------------------------------
 
   void _handleCurrentIndex(int? index) {
     if (_isDisposed || index == null || index < 0 || index >= _queue.length) {
@@ -188,6 +194,7 @@ class PlayerController extends ChangeNotifier {
     final changed = _currentSong?.id != song.id;
 
     _currentIndex = index;
+
     _currentSong = song;
 
     if (changed) {
@@ -197,12 +204,10 @@ class PlayerController extends ChangeNotifier {
 
       _positionAnchorTime = _isPlaying ? DateTime.now() : null;
 
-      _duration = song.duration ?? Duration.zero;
+      _duration = song.duration;
 
       _isFavorite = _favoritesRepository.isFavorite(song.id);
 
-      // Avance nativo: no hay cambio de play/pause, así que hay que
-      // registrar la reproducción aquí.
       if (_isPlaying) {
         _registerCurrentPlayback();
       }
@@ -211,7 +216,9 @@ class PlayerController extends ChangeNotifier {
     _notify();
   }
 
+  // ---------------------------------------------------------------------------
   // POSICIÓN
+  // ---------------------------------------------------------------------------
 
   void _handlePosition(Duration newPosition) {
     if (_isDisposed || _isSeeking || _isChangingTrack) {
@@ -240,11 +247,12 @@ class PlayerController extends ChangeNotifier {
     _notify();
   }
 
+  // ---------------------------------------------------------------------------
   // DURACIÓN
+  // ---------------------------------------------------------------------------
 
   Duration _sanitizeDuration(Duration? live) {
     final value = live ?? Duration.zero;
-
     final hint = _currentSong?.duration;
 
     if (hint != null &&
@@ -277,7 +285,9 @@ class PlayerController extends ChangeNotifier {
     _notify();
   }
 
-  // ESTADO
+  // ---------------------------------------------------------------------------
+  // ESTADO DEL PLAYER
+  // ---------------------------------------------------------------------------
 
   void _handlePlayerState(PlayerState state) {
     if (_isDisposed) {
@@ -319,7 +329,9 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
   // COMPLETADO
+  // ---------------------------------------------------------------------------
 
   void _checkCompletionFallback() {
     if (_isDisposed ||
@@ -395,7 +407,9 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
   // ESTADÍSTICAS
+  // ---------------------------------------------------------------------------
 
   void _registerCurrentPlayback() {
     if (_isDisposed || _currentSong == null || _hasRegisteredCurrentPlayback) {
@@ -420,7 +434,9 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
   // TICKER
+  // ---------------------------------------------------------------------------
 
   void _startPositionTicker() {
     if (_positionTicker != null) {
@@ -442,7 +458,9 @@ class PlayerController extends ChangeNotifier {
     _positionTicker = null;
   }
 
+  // ---------------------------------------------------------------------------
   // NUEVA COLA
+  // ---------------------------------------------------------------------------
 
   Future<void> _playNewQueue(List<Song> songs, int index) async {
     if (songs.isEmpty || index < 0 || index >= songs.length || _isDisposed) {
@@ -531,7 +549,9 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
   // REPRODUCIR ÍNDICE EXISTENTE
+  // ---------------------------------------------------------------------------
 
   Future<void> _playExistingQueueIndex(int index) async {
     if (_queue.isEmpty || index < 0 || index >= _queue.length || _isDisposed) {
@@ -542,8 +562,6 @@ class PlayerController extends ChangeNotifier {
 
     final song = _queue[index];
 
-    // Actualizamos la interfaz ANTES
-    // de cambiar el audio.
     _currentIndex = index;
 
     _currentSong = song;
@@ -571,8 +589,6 @@ class PlayerController extends ChangeNotifier {
         return;
       }
 
-      // Volvemos a sincronizar con
-      // el índice real del reproductor.
       _currentIndex = _audioPlayerService.currentIndex ?? index;
 
       if (_currentIndex >= 0 && _currentIndex < _queue.length) {
@@ -608,13 +624,17 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
   // REPRODUCIR CANCIÓN
+  // ---------------------------------------------------------------------------
 
   Future<void> playSong(Song song) async {
     await _playNewQueue([song], 0);
   }
 
+  // ---------------------------------------------------------------------------
   // REPRODUCIR LISTA
+  // ---------------------------------------------------------------------------
 
   Future<void> playFromQueue(List<Song> songs, {int startIndex = 0}) async {
     if (songs.isEmpty) {
@@ -626,7 +646,9 @@ class PlayerController extends ChangeNotifier {
     await _playNewQueue(songs, safeIndex);
   }
 
+  // ---------------------------------------------------------------------------
   // REPRODUCIR DESDE LISTA
+  // ---------------------------------------------------------------------------
 
   Future<void> playSongFromList(List<Song> songs, Song song) async {
     if (songs.isEmpty) {
@@ -642,7 +664,9 @@ class PlayerController extends ChangeNotifier {
     await _playNewQueue(songs, index);
   }
 
+  // ---------------------------------------------------------------------------
   // SIGUIENTE
+  // ---------------------------------------------------------------------------
 
   Future<void> playNext() async {
     if (_queue.isEmpty) {
@@ -678,7 +702,9 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
   // ANTERIOR
+  // ---------------------------------------------------------------------------
 
   Future<void> playPrevious() async {
     if (_queue.isEmpty || _currentIndex < 0) {
@@ -722,7 +748,9 @@ class PlayerController extends ChangeNotifier {
     return index;
   }
 
+  // ---------------------------------------------------------------------------
   // CONTROLES
+  // ---------------------------------------------------------------------------
 
   Future<void> pause() {
     return _audioPlayerService.pause();
@@ -748,7 +776,135 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
+  // SINCRONIZAR LIBRERÍA CON PLAYER
+  // ---------------------------------------------------------------------------
+
+  /// Reemplaza las instancias antiguas de Song que utiliza el player
+  /// por las nuevas instancias producidas por el escaneo de la librería.
+  ///
+  /// Esto es importante cuando un archivo cambia y Android genera un
+  /// nuevo coverPath.
+  ///
+  /// NO reinicia la reproducción.
+  /// NO vuelve a cargar el audio.
+  /// NO modifica position.
+  /// NO modifica currentIndex.
+  void syncLibrarySongs(List<Song> librarySongs) {
+    if (_isDisposed || librarySongs.isEmpty) {
+      return;
+    }
+
+    final songsByPath = <String, Song>{
+      for (final song in librarySongs)
+        if (song.filePath.isNotEmpty) song.filePath: song,
+    };
+
+    final songsById = <String, Song>{
+      for (final song in librarySongs)
+        if (song.id.isNotEmpty) song.id: song,
+    };
+
+    Song? findUpdatedSong(Song currentSong) {
+      // Primero por filePath porque representa
+      // físicamente el archivo que fue escaneado.
+      final byPath = songsByPath[currentSong.filePath];
+
+      if (byPath != null) {
+        return byPath;
+      }
+
+      // Fallback por ID.
+      return songsById[currentSong.id];
+    }
+
+    var changed = false;
+
+    // ---------------------------------------------------------------
+    // Actualizar canciones de la cola.
+    // ---------------------------------------------------------------
+
+    for (var index = 0; index < _queue.length; index++) {
+      final currentSong = _queue[index];
+
+      final updatedSong = findUpdatedSong(currentSong);
+
+      if (updatedSong == null) {
+        continue;
+      }
+
+      if (!_songsAreEquivalent(currentSong, updatedSong)) {
+        _queue[index] = updatedSong;
+
+        changed = true;
+      }
+    }
+
+    // ---------------------------------------------------------------
+    // Mantener currentSong sincronizado.
+    // ---------------------------------------------------------------
+
+    if (_currentIndex >= 0 && _currentIndex < _queue.length) {
+      final queueSong = _queue[_currentIndex];
+
+      if (_currentSong != queueSong) {
+        _currentSong = queueSong;
+
+        changed = true;
+      }
+    } else if (_currentSong != null) {
+      final updatedCurrentSong = findUpdatedSong(_currentSong!);
+
+      if (updatedCurrentSong != null &&
+          !_songsAreEquivalent(_currentSong!, updatedCurrentSong)) {
+        _currentSong = updatedCurrentSong;
+
+        changed = true;
+      }
+    }
+
+    if (!changed) {
+      return;
+    }
+
+    // ---------------------------------------------------------------
+    // Actualizar solamente datos derivados.
+    //
+    // NO tocar position.
+    // NO tocar currentIndex.
+    // NO tocar isPlaying.
+    // NO recargar AudioPlayer.
+    // ---------------------------------------------------------------
+
+    if (_currentSong != null) {
+      _isFavorite = _favoritesRepository.isFavorite(_currentSong!.id);
+
+      if (_duration == Duration.zero &&
+          _currentSong!.duration > Duration.zero) {
+        _duration = _currentSong!.duration;
+      }
+    }
+
+    _notify();
+  }
+
+  bool _songsAreEquivalent(Song a, Song b) {
+    return a.id == b.id &&
+        a.filePath == b.filePath &&
+        a.title == b.title &&
+        a.artist == b.artist &&
+        a.album == b.album &&
+        a.duration == b.duration &&
+        a.coverPath == b.coverPath &&
+        a.isFavorite == b.isFavorite &&
+        a.volumeGain == b.volumeGain &&
+        a.fileLastModified == b.fileLastModified &&
+        a.fileSize == b.fileSize;
+  }
+
+  // ---------------------------------------------------------------------------
   // SEEK
+  // ---------------------------------------------------------------------------
 
   Future<void> seek(Duration newPosition) async {
     if (_currentSong == null) {
@@ -780,7 +936,6 @@ class PlayerController extends ChangeNotifier {
     } finally {
       _activeSeeks--;
 
-      // Solo el último seek reancla la barra.
       if (!_isDisposed && seekId == _seekRequestId) {
         _position = safePosition;
 
@@ -793,7 +948,9 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
   // FAVORITOS
+  // ---------------------------------------------------------------------------
 
   Future<void> toggleFavorite() async {
     final song = _currentSong;
@@ -822,7 +979,9 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
   // MODOS
+  // ---------------------------------------------------------------------------
 
   void toggleShuffle() {
     _isShuffleEnabled = !_isShuffleEnabled;
@@ -850,7 +1009,9 @@ class PlayerController extends ChangeNotifier {
     _notify();
   }
 
-  // AGREGAR
+  // ---------------------------------------------------------------------------
+  // AGREGAR A COLA
+  // ---------------------------------------------------------------------------
 
   Future<void> addToQueue(Song song) async {
     if (_isDisposed || isInQueue(song.id)) {
@@ -880,7 +1041,9 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // AGREGAR VARIAS
+  // ---------------------------------------------------------------------------
+  // AGREGAR VARIAS A COLA
+  // ---------------------------------------------------------------------------
 
   Future<void> addSongsToQueue(List<Song> songs) async {
     if (songs.isEmpty || _isDisposed) {
@@ -916,7 +1079,9 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  // ELIMINAR
+  // ---------------------------------------------------------------------------
+  // ELIMINAR DE COLA
+  // ---------------------------------------------------------------------------
 
   Future<void> removeFromQueue(Song song) async {
     if (_isDisposed) {
@@ -929,40 +1094,26 @@ class PlayerController extends ChangeNotifier {
       return;
     }
 
-    // IMPORTANTE:
-    // La canción debe desaparecer de la cola INMEDIATAMENTE.
-    //
-    // Dismissible ejecuta onDismissed cuando termina la animación.
-    // Si esperamos al AudioPlayerService antes de modificar _queue,
-    // el Dismissible sigue existiendo en el árbol y Flutter lanza:
-    //
-    // "A dismissed Dismissible widget is still part of the tree."
-
     _queue.removeAt(index);
 
-    // Ajustamos el índice actual porque la cola ya cambió.
     if (index < _currentIndex) {
       _currentIndex--;
     }
 
-    // Actualizamos inmediatamente la interfaz para que el Dismissible
-    // desaparezca del árbol.
     _notify();
-
-    // Ahora sincronizamos el reproductor de audio.
 
     try {
       await _audioPlayerService.removeFromQueue(index);
     } catch (error, stackTrace) {
       debugPrint(
         '[SONARA QUEUE ERROR] '
-        'No se pudo eliminar ${song.title} del reproductor: $error',
+        'No se pudo eliminar '
+        '${song.title} del reproductor: '
+        '$error',
       );
 
       debugPrintStack(stackTrace: stackTrace);
 
-      // Si el servicio de audio falla, restauramos la canción en la misma
-      // posición para mantener sincronizados ambos estados.
       if (_isDisposed) {
         return;
       }
@@ -981,7 +1132,9 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
+  // ---------------------------------------------------------------------------
   // REORDENAR
+  // ---------------------------------------------------------------------------
 
   Future<void> reorderQueue(int oldIndex, int newIndex) async {
     if (oldIndex < 0 ||
@@ -1013,7 +1166,9 @@ class PlayerController extends ChangeNotifier {
     _notify();
   }
 
+  // ---------------------------------------------------------------------------
   // ELIMINAR REPRODUCTOR
+  // ---------------------------------------------------------------------------
 
   Future<void> removeCurrentSong() async {
     ++_playbackRequestId;
@@ -1047,15 +1202,15 @@ class PlayerController extends ChangeNotifier {
     await removeCurrentSong();
   }
 
+  // ---------------------------------------------------------------------------
   // NOTIFICAR
+  // ---------------------------------------------------------------------------
 
   void _notify() {
     if (_isDisposed) {
       return;
     }
 
-    // El ticker debe correr siempre que estemos reproduciendo, sin importar
-    // por qué camino cambió _isPlaying.
     if (_isPlaying) {
       _startPositionTicker();
     } else {
@@ -1065,7 +1220,9 @@ class PlayerController extends ChangeNotifier {
     notifyListeners();
   }
 
+  // ---------------------------------------------------------------------------
   // DISPOSE
+  // ---------------------------------------------------------------------------
 
   @override
   void dispose() {

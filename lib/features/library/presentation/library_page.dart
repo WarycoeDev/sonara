@@ -156,6 +156,8 @@ class _LibraryPageState extends State<LibraryPage> {
 
       _updateLibrary(songs);
 
+      context.read<PlayerController>().syncLibrarySongs(songs);
+
       setState(() {
         _hasLoaded = true;
         _isLoading = false;
@@ -193,6 +195,8 @@ class _LibraryPageState extends State<LibraryPage> {
 
       _updateLibrary(songs);
 
+      context.read<PlayerController>().syncLibrarySongs(songs);
+
       setState(() {
         _hasLoaded = true;
         _isLoading = false;
@@ -200,7 +204,9 @@ class _LibraryPageState extends State<LibraryPage> {
       });
 
       await _loadFavorites();
-    } catch (_) {
+    } catch (error) {
+      debugPrint('[SONARA SCAN] Error: $error');
+
       if (!mounted) {
         return;
       }
