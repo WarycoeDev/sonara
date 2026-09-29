@@ -8,9 +8,7 @@ import 'package:provider/provider.dart';
 import '../../../../l10n/app_localizations.dart';
 
 import '../controllers/player_controller.dart';
-
 import '../../../library/domain/models/song.dart';
-
 import '../player_page.dart';
 
 class MiniPlayer extends StatefulWidget {
@@ -23,7 +21,6 @@ class MiniPlayer extends StatefulWidget {
 class _MiniPlayerState extends State<MiniPlayer>
     with SingleTickerProviderStateMixin {
   late final AnimationController _animationController;
-
   late final Animation<Offset> _slideAnimation;
 
   bool _wasVisible = false;
@@ -34,12 +31,12 @@ class _MiniPlayerState extends State<MiniPlayer>
 
     _animationController = AnimationController(
       vsync: this,
-      duration: const Duration(milliseconds: 180),
-      reverseDuration: const Duration(milliseconds: 150),
+      duration: const Duration(milliseconds: 220),
+      reverseDuration: const Duration(milliseconds: 170),
     );
 
-    _slideAnimation = Tween<Offset>(begin: const Offset(0, 1), end: Offset.zero)
-        .animate(
+    _slideAnimation =
+        Tween<Offset>(begin: const Offset(0, 1.15), end: Offset.zero).animate(
           CurvedAnimation(
             parent: _animationController,
             curve: Curves.easeOutCubic,
@@ -51,7 +48,6 @@ class _MiniPlayerState extends State<MiniPlayer>
   @override
   void dispose() {
     _animationController.dispose();
-
     super.dispose();
   }
 
@@ -80,7 +76,6 @@ class _MiniPlayerState extends State<MiniPlayer>
       ),
       builder: (context, data, child) {
         final song = data.song;
-
         final isVisible = song != null;
 
         if (isVisible && !_wasVisible) {
@@ -111,99 +106,29 @@ class _MiniPlayerState extends State<MiniPlayer>
 
         return SlideTransition(
           position: _slideAnimation,
-          child: Dismissible(
-            key: ValueKey(song.filePath),
-            direction: DismissDirection.down,
-            dismissThresholds: const {DismissDirection.down: 0.4},
-            confirmDismiss: (direction) async {
-              await controller.removeCurrentSong();
-              return false;
-            },
-            child: GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: () {
-                _openPlayer(context);
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 0, 12, 10),
+            child: Dismissible(
+              key: ValueKey(song.filePath),
+              direction: DismissDirection.down,
+              dismissThresholds: const {DismissDirection.down: 0.4},
+              confirmDismiss: (direction) async {
+                await controller.removeCurrentSong();
+                return false;
               },
-              child: Material(
-                color: Theme.of(context).colorScheme.surface,
-                child: Column(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    LinearProgressIndicator(
-                      value: _calculateProgress(data.position, data.duration),
-                      minHeight: 2,
-                    ),
-                    SizedBox(
-                      height: 62,
-                      child: Row(
-                        children: [
-                          const SizedBox(width: 16),
-
-                          _MiniPlayerArtwork(coverPath: song.coverPath),
-
-                          const SizedBox(width: 16),
-
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                Text(
-                                  song.title,
-                                  maxLines: 1,
-                                  overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context)
-                                      .textTheme
-                                      .titleMedium,
-                                ),
-                                const SizedBox(height: 2),
-                                Text(
-                                  '${_formatTime(data.position)}/${_formatTime(data.duration)}',
-                                  style: Theme.of(context).textTheme.bodySmall,
-                                ),
-                              ],
-                            ),
-                          ),
-
-                          IconButton(
-                            iconSize: 26,
-                            tooltip: l10n.previous,
-                            onPressed: data.hasPrevious
-                                ? () {
-                                    controller.playPrevious();
-                                  }
-                                : null,
-                            icon: const Icon(Icons.skip_previous),
-                          ),
-
-                          IconButton(
-                            iconSize: 30,
-                            tooltip: data.isPlaying ? l10n.pause : l10n.play,
-                            onPressed: () {
-                              controller.togglePlayPause();
-                            },
-                            icon: Icon(
-                              data.isPlaying ? Icons.pause : Icons.play_arrow,
-                            ),
-                          ),
-
-                          IconButton(
-                            iconSize: 26,
-                            tooltip: l10n.next,
-                            onPressed: data.hasNext
-                                ? () {
-                                    controller.playNext();
-                                  }
-                                : null,
-                            icon: const Icon(Icons.skip_next),
-                          ),
-
-                          const SizedBox(width: 8),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
+              child: _MiniPlayerCard(
+                song: song,
+                position: data.position,
+                duration: data.duration,
+                isPlaying: data.isPlaying,
+                hasPrevious: data.hasPrevious,
+                hasNext: data.hasNext,
+                l10n: l10n,
+                onTap: () => _openPlayer(context),
+                onPrevious: controller.playPrevious,
+                onPlayPause: controller.togglePlayPause,
+                onNext: controller.playNext,
+                progress: _calculateProgress(data.position, data.duration),
               ),
             ),
           ),
@@ -215,10 +140,12 @@ class _MiniPlayerState extends State<MiniPlayer>
   void _openPlayer(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
 
+    final platform = Theme.of(context).platform;
+
     final isDesktop =
-        Theme.of(context).platform == TargetPlatform.linux ||
-        Theme.of(context).platform == TargetPlatform.windows ||
-        Theme.of(context).platform == TargetPlatform.macOS;
+        platform == TargetPlatform.linux ||
+        platform == TargetPlatform.windows ||
+        platform == TargetPlatform.macOS;
 
     if (isDesktop) {
       showGeneralDialog(
@@ -294,22 +221,194 @@ class _MiniPlayerState extends State<MiniPlayer>
     );
   }
 
-  /// Evita saltos de estado desfasados en el segundo 0:00.
   double _calculateProgress(Duration position, Duration duration) {
     final totalMs = duration.inMilliseconds;
-
     final posMs = position.inMilliseconds;
 
     if (totalMs <= 0 || posMs < 0) {
       return 0.0;
     }
 
-    /// Si la posición es mayor que la duración o si está reiniciando.
     if (posMs > totalMs) {
       return 0.0;
     }
 
     return (posMs / totalMs).clamp(0.0, 1.0);
+  }
+}
+
+/// ------------------------------------------------------------
+/// CARD PRINCIPAL
+/// ------------------------------------------------------------
+
+class _MiniPlayerCard extends StatelessWidget {
+  final Song song;
+  final Duration position;
+  final Duration duration;
+  final bool isPlaying;
+  final bool hasPrevious;
+  final bool hasNext;
+  final AppLocalizations l10n;
+  final VoidCallback onTap;
+  final VoidCallback onPrevious;
+  final VoidCallback onPlayPause;
+  final VoidCallback onNext;
+  final double progress;
+
+  const _MiniPlayerCard({
+    required this.song,
+    required this.position,
+    required this.duration,
+    required this.isPlaying,
+    required this.hasPrevious,
+    required this.hasNext,
+    required this.l10n,
+    required this.onTap,
+    required this.onPrevious,
+    required this.onPlayPause,
+    required this.onNext,
+    required this.progress,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(28),
+        child: Ink(
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainer,
+            borderRadius: BorderRadius.circular(28),
+            border: Border.all(
+              color: colorScheme.outlineVariant.withOpacity(0.35),
+            ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withOpacity(0.14),
+                blurRadius: 18,
+                spreadRadius: 1,
+                offset: const Offset(0, 7),
+              ),
+            ],
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(28),
+            child: Stack(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
+                  child: Row(
+                    children: [
+                      _MiniPlayerArtwork(coverPath: song.coverPath, size: 50),
+
+                      const SizedBox(width: 12),
+
+                      Expanded(
+                        child: _MiniPlayerInfo(
+                          title: song.title,
+                          position: position,
+                          duration: duration,
+                        ),
+                      ),
+
+                      const SizedBox(width: 4),
+
+                      _MiniPlayerControlButton(
+                        tooltip: l10n.previous,
+                        icon: Icons.skip_previous_rounded,
+                        enabled: hasPrevious,
+                        onPressed: hasPrevious ? onPrevious : null,
+                      ),
+
+                      const SizedBox(width: 2),
+
+                      _MiniPlayerPlayButton(
+                        isPlaying: isPlaying,
+                        tooltip: isPlaying ? l10n.pause : l10n.play,
+                        onPressed: onPlayPause,
+                      ),
+
+                      const SizedBox(width: 2),
+
+                      _MiniPlayerControlButton(
+                        tooltip: l10n.next,
+                        icon: Icons.skip_next_rounded,
+                        enabled: hasNext,
+                        onPressed: hasNext ? onNext : null,
+                      ),
+                    ],
+                  ),
+                ),
+
+                Positioned(
+                  left: 0,
+                  right: 0,
+                  bottom: 0,
+                  child: IgnorePointer(
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 3,
+                      borderRadius: BorderRadius.circular(3),
+                      backgroundColor: colorScheme.primary.withOpacity(0.10),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+/// ------------------------------------------------------------
+/// INFORMACIÓN
+/// ------------------------------------------------------------
+
+class _MiniPlayerInfo extends StatelessWidget {
+  final String title;
+  final Duration position;
+  final Duration duration;
+
+  const _MiniPlayerInfo({
+    required this.title,
+    required this.position,
+    required this.duration,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          title,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleSmall?.copyWith(
+            fontWeight: FontWeight.w600,
+          ),
+        ),
+        const SizedBox(height: 3),
+        Text(
+          '${_formatTime(position)} / ${_formatTime(duration)}',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelMedium?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
   }
 
   String _formatTime(Duration duration) {
@@ -325,17 +424,102 @@ class _MiniPlayerState extends State<MiniPlayer>
 }
 
 /// ------------------------------------------------------------
-/// PORTADA DEL MINI PLAYER
+/// BOTONES SECUNDARIOS
+/// ------------------------------------------------------------
+
+class _MiniPlayerControlButton extends StatelessWidget {
+  final String tooltip;
+  final IconData icon;
+  final bool enabled;
+  final VoidCallback? onPressed;
+
+  const _MiniPlayerControlButton({
+    required this.tooltip,
+    required this.icon,
+    required this.enabled,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Tooltip(
+      message: tooltip,
+      child: IconButton(
+        onPressed: onPressed,
+        icon: Icon(icon),
+        iconSize: 23,
+        visualDensity: VisualDensity.compact,
+        style: IconButton.styleFrom(
+          foregroundColor: enabled
+              ? colorScheme.onSurface
+              : colorScheme.onSurface.withOpacity(0.28),
+          minimumSize: const Size(40, 40),
+          maximumSize: const Size(40, 40),
+          padding: EdgeInsets.zero,
+        ),
+      ),
+    );
+  }
+}
+
+/// ------------------------------------------------------------
+/// BOTÓN PLAY / PAUSE
+/// ------------------------------------------------------------
+
+class _MiniPlayerPlayButton extends StatelessWidget {
+  final bool isPlaying;
+  final String tooltip;
+  final VoidCallback onPressed;
+
+  const _MiniPlayerPlayButton({
+    required this.isPlaying,
+    required this.tooltip,
+    required this.onPressed,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Tooltip(
+      message: tooltip,
+      child: IconButton.filled(
+        onPressed: onPressed,
+        tooltip: tooltip,
+        icon: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 160),
+          transitionBuilder: (child, animation) {
+            return ScaleTransition(scale: animation, child: child);
+          },
+          child: Icon(
+            isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+            key: ValueKey(isPlaying),
+            size: 23,
+          ),
+        ),
+        style: IconButton.styleFrom(
+          backgroundColor: colorScheme.primary,
+          foregroundColor: colorScheme.onPrimary,
+          minimumSize: const Size(44, 44),
+          maximumSize: const Size(44, 44),
+          padding: EdgeInsets.zero,
+        ),
+      ),
+    );
+  }
+}
+
+/// ------------------------------------------------------------
+/// PORTADA
 /// ------------------------------------------------------------
 
 class _MiniPlayerArtwork extends StatelessWidget {
   final String? coverPath;
+  final double size;
 
-  const _MiniPlayerArtwork({required this.coverPath});
-
-  static const MethodChannel _mediaStoreChannel = MethodChannel(
-    'sonara/media_store',
-  );
+  const _MiniPlayerArtwork({required this.coverPath, this.size = 50});
 
   @override
   Widget build(BuildContext context) {
@@ -346,7 +530,7 @@ class _MiniPlayerArtwork extends StatelessWidget {
     }
 
     if (path.startsWith('content://')) {
-      return _AndroidMiniPlayerArtwork(contentUri: path);
+      return _AndroidMiniPlayerArtwork(contentUri: path, size: size);
     }
 
     return _buildFileArtwork(context, path);
@@ -360,11 +544,11 @@ class _MiniPlayerArtwork extends StatelessWidget {
     }
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(16),
       child: Image.file(
         file,
-        width: 42,
-        height: 42,
+        width: size,
+        height: size,
         fit: BoxFit.cover,
         cacheWidth: 128,
         cacheHeight: 128,
@@ -377,14 +561,20 @@ class _MiniPlayerArtwork extends StatelessWidget {
   }
 
   Widget _defaultArtwork(BuildContext context) {
-    return SizedBox(
-      width: 42,
-      height: 42,
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      width: size,
+      height: size,
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Center(
         child: Icon(
-          Icons.music_note,
-          size: 28,
-          color: Theme.of(context).colorScheme.primary,
+          Icons.music_note_rounded,
+          size: size * 0.52,
+          color: colorScheme.primary,
         ),
       ),
     );
@@ -392,13 +582,14 @@ class _MiniPlayerArtwork extends StatelessWidget {
 }
 
 /// ------------------------------------------------------------
-/// PORTADA ANDROID
+/// PORTADA ANDROID / CONTENT URI
 /// ------------------------------------------------------------
 
 class _AndroidMiniPlayerArtwork extends StatefulWidget {
   final String contentUri;
+  final double size;
 
-  const _AndroidMiniPlayerArtwork({required this.contentUri});
+  const _AndroidMiniPlayerArtwork({required this.contentUri, this.size = 50});
 
   @override
   State<_AndroidMiniPlayerArtwork> createState() =>
@@ -411,7 +602,6 @@ class _AndroidMiniPlayerArtworkState extends State<_AndroidMiniPlayerArtwork> {
   );
 
   Uint8List? _bytes;
-
   bool _isLoading = true;
 
   @override
@@ -484,18 +674,18 @@ class _AndroidMiniPlayerArtworkState extends State<_AndroidMiniPlayerArtwork> {
 
     if (bytes == null || bytes.isEmpty) {
       if (_isLoading) {
-        return const SizedBox(width: 42, height: 42);
+        return SizedBox(width: widget.size, height: widget.size);
       }
 
       return _defaultArtwork(context);
     }
 
     return ClipRRect(
-      borderRadius: BorderRadius.circular(8),
+      borderRadius: BorderRadius.circular(16),
       child: Image.memory(
         bytes,
-        width: 42,
-        height: 42,
+        width: widget.size,
+        height: widget.size,
         fit: BoxFit.cover,
         cacheWidth: 128,
         cacheHeight: 128,
@@ -509,14 +699,20 @@ class _AndroidMiniPlayerArtworkState extends State<_AndroidMiniPlayerArtwork> {
   }
 
   Widget _defaultArtwork(BuildContext context) {
-    return SizedBox(
-      width: 42,
-      height: 42,
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      width: widget.size,
+      height: widget.size,
+      decoration: BoxDecoration(
+        color: colorScheme.surfaceContainerHighest,
+        borderRadius: BorderRadius.circular(16),
+      ),
       child: Center(
         child: Icon(
-          Icons.music_note,
-          size: 28,
-          color: Theme.of(context).colorScheme.primary,
+          Icons.music_note_rounded,
+          size: widget.size * 0.52,
+          color: colorScheme.primary,
         ),
       ),
     );
