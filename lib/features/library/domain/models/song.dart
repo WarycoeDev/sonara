@@ -4,42 +4,18 @@ enum SongSource { local, downloaded }
 
 class Song {
   final String id;
-
   final String filePath;
-
   final String title;
-
   final String? artist;
-
   final String? album;
-
   final Duration duration;
-
   final String? coverPath;
-
   final Uint8List? coverBytes;
-
   final DateTime dateAdded;
-
   final SongSource source;
-
   final bool isFavorite;
-
-  /// Ganancia calculada para normalización de volumen.
-  ///
-  /// El valor está expresado en dB.
   final double? volumeGain;
-
-  // ===========================================================================
-  // DATOS INTERNOS PARA EL CACHÉ DE LA BIBLIOTECA
-  // ===========================================================================
-  //
-  // Se utilizan para detectar si un archivo cambió sin volver a procesar
-  // innecesariamente sus metadatos o su ReplayGain.
-  // ===========================================================================
-
   final int? fileLastModified;
-
   final int? fileSize;
 
   const Song({
@@ -59,10 +35,6 @@ class Song {
     this.fileSize,
   });
 
-  // ===========================================================================
-  // SERIALIZAR PARA CACHÉ
-  // ===========================================================================
-
   Map<String, dynamic> toJson() {
     return <String, dynamic>{
       'id': id,
@@ -80,10 +52,6 @@ class Song {
       'fileSize': fileSize,
     };
   }
-
-  // ===========================================================================
-  // DESERIALIZAR DESDE CACHÉ
-  // ===========================================================================
 
   factory Song.fromJson(Map<String, dynamic> json) {
     final sourceName = json['source']?.toString();
@@ -122,10 +90,6 @@ class Song {
     );
   }
 
-  // ===========================================================================
-  // COPIAR CON CAMBIOS
-  // ===========================================================================
-
   Song copyWith({
     String? id,
     String? filePath,
@@ -133,17 +97,21 @@ class Song {
     String? artist,
     String? album,
     Duration? duration,
-    String? coverPath,
-    Uint8List? coverBytes,
+
+    // Permite distinguir:
+    //
+    // coverPath omitido  -> conservar
+    // coverPath: null    -> borrar
+    // coverPath: "..."   -> reemplazar
+    //
+    Object? coverPath = _unset,
+
+    Object? coverBytes = _unset,
+
     DateTime? dateAdded,
     SongSource? source,
     bool? isFavorite,
 
-    // Para permitir distinguir entre:
-    //
-    // - no modificar el valor;
-    // - establecer explícitamente null;
-    // - establecer un nuevo valor.
     Object? volumeGain = _unset,
     Object? fileLastModified = _unset,
     Object? fileSize = _unset,
@@ -155,17 +123,27 @@ class Song {
       artist: artist ?? this.artist,
       album: album ?? this.album,
       duration: duration ?? this.duration,
-      coverPath: coverPath ?? this.coverPath,
-      coverBytes: coverBytes ?? this.coverBytes,
+
+      coverPath: identical(coverPath, _unset)
+          ? this.coverPath
+          : coverPath as String?,
+
+      coverBytes: identical(coverBytes, _unset)
+          ? this.coverBytes
+          : coverBytes as Uint8List?,
+
       dateAdded: dateAdded ?? this.dateAdded,
       source: source ?? this.source,
       isFavorite: isFavorite ?? this.isFavorite,
+
       volumeGain: identical(volumeGain, _unset)
           ? this.volumeGain
           : volumeGain as double?,
+
       fileLastModified: identical(fileLastModified, _unset)
           ? this.fileLastModified
           : fileLastModified as int?,
+
       fileSize: identical(fileSize, _unset) ? this.fileSize : fileSize as int?,
     );
   }

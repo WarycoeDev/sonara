@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -163,7 +164,7 @@ class _PlayerLayout extends StatelessWidget {
                     //
                     // La key depende de song.id y coverPath.
                     //
-                    // Cuando Android genera una nueva portada,
+                    // Cuando la carátula cambia o se elimina,
                     // coverPath cambia y AnimatedSwitcher crea
                     // un nuevo widget de artwork.
                     child: SizedBox(
@@ -236,10 +237,45 @@ class _AlbumArtwork extends StatelessWidget {
 
   const _AlbumArtwork({required this.coverPath});
 
+  Future<void> _showArtworkMenu(BuildContext context) async {
+    final controller = context.read<PlayerController>();
+
+    await showModalBottomSheet<void>(
+      context: context,
+      useRootNavigator: true,
+      showDragHandle: true,
+      builder: (sheetContext) {
+        return _ArtworkMenu(
+          sheetContext: sheetContext,
+          controller: controller,
+          hasArtwork: coverPath != null && coverPath!.isNotEmpty,
+        );
+      },
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final path = coverPath;
 
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+
+      // Android / touch:
+      onLongPress: () {
+        _showArtworkMenu(context);
+      },
+
+      // Linux / Windows / macOS:
+      onSecondaryTap: () {
+        _showArtworkMenu(context);
+      },
+
+      child: _buildArtwork(context, path),
+    );
+  }
+
+  Widget _buildArtwork(BuildContext context, String? path) {
     if (path == null || path.isEmpty) {
       return _buildDefaultArtwork(context);
     }
@@ -285,6 +321,142 @@ class _AlbumArtwork extends StatelessWidget {
         child: const _DefaultArtwork(),
       ),
     );
+  }
+}
+
+class _ArtworkMenu extends StatelessWidget {
+  final BuildContext sheetContext;
+  final PlayerController controller;
+  final bool hasArtwork;
+
+  const _ArtworkMenu({
+    required this.sheetContext,
+    required this.controller,
+    required this.hasArtwork,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return SafeArea(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ListTile(
+            leading: const Icon(Icons.save_alt),
+            title: const Text('Guardar carátula'),
+            enabled: hasArtwork,
+            onTap: !hasArtwork
+                ? null
+                : () async {
+                    Navigator.of(sheetContext, rootNavigator: true).pop();
+
+                    final saved = await controller.saveCurrentArtwork();
+
+                    if (!sheetContext.mounted) {
+                      return;
+                    }
+
+                    final messenger = ScaffoldMessenger.maybeOf(sheetContext);
+
+                    messenger?.hideCurrentSnackBar();
+
+                    messenger?.showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          saved
+                              ? 'Carátula guardada correctamente.'
+                              : 'No se pudo guardar la carátula.',
+                        ),
+                      ),
+                    );
+                  },
+          ),
+
+          ListTile(
+            leading: const Icon(Icons.delete_outline),
+            title: const Text('Borrar carátula'),
+            enabled: hasArtwork,
+            onTap: !hasArtwork
+                ? null
+                : () async {
+                    Navigator.of(sheetContext, rootNavigator: true).pop();
+
+                    final shouldDelete = await _confirmDelete(context);
+
+                    if (!shouldDelete) {
+                      return;
+                    }
+
+                    final deleted = await controller.clearCurrentArtwork();
+
+                    if (!context.mounted) {
+                      return;
+                    }
+
+                    final messenger = ScaffoldMessenger.maybeOf(context);
+
+                    messenger?.hideCurrentSnackBar();
+
+                    messenger?.showSnackBar(
+                      SnackBar(
+                        content: Text(
+                          deleted
+                              ? 'Carátula borrada.'
+                              : 'No se pudo borrar la carátula.',
+                        ),
+                      ),
+                    );
+                  },
+          ),
+
+          ListTile(
+            leading: const Icon(Icons.image_outlined),
+            title: const Text('Cambiar carátula'),
+            onTap: () {
+              Navigator.of(sheetContext, rootNavigator: true).pop();
+
+              ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+                const SnackBar(
+                  content: Text(
+                    'Cambiar carátula estará disponible próximamente.',
+                  ),
+                ),
+              );
+            },
+          ),
+
+          const SizedBox(height: 12),
+        ],
+      ),
+    );
+  }
+
+  Future<bool> _confirmDelete(BuildContext context) async {
+    final result = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Borrar carátula'),
+          content: const Text('¿Quieres borrar la carátula de esta canción?'),
+          actions: [
+            TextButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(false);
+              },
+              child: const Text('Cancelar'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop(true);
+              },
+              child: const Text('Borrar'),
+            ),
+          ],
+        );
+      },
+    );
+
+    return result == true;
   }
 }
 
@@ -1188,8 +1360,6 @@ class _QueueItem extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
     final controller = context.read<PlayerController>();
 
     final colorScheme = Theme.of(context).colorScheme;

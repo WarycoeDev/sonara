@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,7 @@ import '../../../favorites/data/favorites_repository.dart';
 import '../../../library/domain/models/song.dart';
 import '../../../statistics/data/statistics_repository.dart';
 import '../../data/services/audio_player_service.dart';
+import '../../data/services/artwork_file_service.dart';
 
 enum SonaraRepeatMode { off, one, all }
 
@@ -17,6 +19,8 @@ class PlayerController extends ChangeNotifier {
   final StatisticsRepository _statisticsRepository = StatisticsRepository();
 
   final FavoritesRepository _favoritesRepository = FavoritesRepository();
+
+  final ArtworkFileService _artworkFileService = ArtworkFileService();
 
   final Random _random = Random();
 
@@ -806,15 +810,12 @@ class PlayerController extends ChangeNotifier {
     };
 
     Song? findUpdatedSong(Song currentSong) {
-      // Primero por filePath porque representa
-      // físicamente el archivo que fue escaneado.
       final byPath = songsByPath[currentSong.filePath];
 
       if (byPath != null) {
         return byPath;
       }
 
-      // Fallback por ID.
       return songsById[currentSong.id];
     }
 
@@ -872,7 +873,6 @@ class PlayerController extends ChangeNotifier {
     //
     // NO tocar position.
     // NO tocar currentIndex.
-    // NO tocar isPlaying.
     // NO recargar AudioPlayer.
     // ---------------------------------------------------------------
 
@@ -1200,6 +1200,218 @@ class PlayerController extends ChangeNotifier {
 
   Future<void> clearQueue() async {
     await removeCurrentSong();
+  }
+
+  // ---------------------------------------------------------------------------
+  // CARÁTULA
+  // ---------------------------------------------------------------------------
+
+  /// Devuelve el archivo local de la carátula actual.
+  ///
+  /// Las carátulas content:// y http(s) no se tratan como archivos locales.
+  Future<File?> getCurrentArtworkFile() async {
+    final song = _currentSong;
+
+    if (song == null) {
+      return null;
+    }
+
+    final coverPath = song.coverPath;
+
+    if (coverPath == null || coverPath.isEmpty) {
+      return null;
+    }
+
+    // Las URI externas no se pueden manipular como File local.
+    if (_isExternalArtworkPath(coverPath)) {
+      return null;
+    }
+
+    final file = File(coverPath);
+
+    if (!await file.exists()) {
+      return null;
+    }
+
+    try {
+      final length = await file.length();
+
+      if (length <= 0) {
+        return null;
+      }
+    } catch (_) {
+      return null;
+    }
+
+    return file;
+  }
+
+  /// Guarda la carátula actual usando FilePicker.
+  ///
+  /// El ArtworkFileService se encarga de abrir el selector de archivos
+  /// y escribir los bytes, por lo que funciona también cuando Android
+  /// devuelve una URI SAF en lugar de una ruta física.
+
+  Future<bool> saveCurrentArtwork() async {
+    if (_isDisposed || _currentSong == null) {
+      return false;
+    }
+
+    final song = _currentSong!;
+
+    final artworkFile = await getCurrentArtworkFile();
+
+    if (artworkFile == null) {
+      debugPrint(
+        '[SONARA PLAYER ARTWORK] '
+        'No existe una carátula local para guardar.',
+      );
+
+      return false;
+    }
+
+    try {
+      final fileName = _buildArtworkFileName(song.title, artworkFile.path);
+
+      final saved = await _artworkFileService.saveArtwork(
+        sourcePath: artworkFile.path,
+        suggestedFileName: fileName,
+      );
+
+      if (saved) {
+        debugPrint(
+          '[SONARA PLAYER ARTWORK] '
+          'Carátula guardada: $fileName',
+        );
+      }
+
+      return saved;
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[SONARA PLAYER ARTWORK] '
+        'Error guardando carátula: $error',
+      );
+
+      debugPrintStack(stackTrace: stackTrace);
+
+      return false;
+    }
+  }
+
+  /// Elimina la carátula cacheada actualmente.
+  ///
+  /// Esto NO modifica la carátula incrustada dentro del archivo de audio.
+  /// Solamente elimina nuestra copia cacheada y deja coverPath en null
+  /// dentro del PlayerController.
+  ///
+  /// En un siguiente escaneo de la biblioteca, el artwork embebido puede
+  /// volver a extraerse. Eso es intencional mientras no implementemos
+  /// escritura de metadatos ID3/FLAC.
+  Future<bool> clearCurrentArtwork() async {
+    if (_isDisposed || _currentSong == null) {
+      return false;
+    }
+
+    final song = _currentSong!;
+    final coverPath = song.coverPath;
+
+    if (coverPath == null || coverPath.isEmpty) {
+      return false;
+    }
+
+    // No intentamos borrar content:// ni URLs externas.
+    if (_isExternalArtworkPath(coverPath)) {
+      debugPrint(
+        '[SONARA PLAYER ARTWORK] '
+        'No se puede eliminar una carátula externa: $coverPath',
+      );
+
+      return false;
+    }
+
+    try {
+      final file = File(coverPath);
+
+      // Si ya no existe, consideramos que el estado ya está limpio.
+      if (await file.exists()) {
+        await file.delete();
+
+        debugPrint(
+          '[SONARA PLAYER ARTWORK] '
+          'Carátula eliminada: $coverPath',
+        );
+      }
+
+      // Es importante que Song.copyWith permita realmente
+      // coverPath: null.
+      final updatedSong = song.copyWith(coverPath: null);
+
+      _replaceSongInQueue(updatedSong);
+
+      _currentSong = updatedSong;
+
+      _notify();
+
+      return true;
+    } catch (error, stackTrace) {
+      debugPrint(
+        '[SONARA PLAYER ARTWORK] '
+        'No se pudo eliminar la carátula: $error',
+      );
+
+      debugPrintStack(stackTrace: stackTrace);
+
+      return false;
+    }
+  }
+
+  /// Reemplaza la Song actual dentro de la cola sin reiniciar el audio.
+  void _replaceSongInQueue(Song updatedSong) {
+    for (var index = 0; index < _queue.length; index++) {
+      if (_queue[index].id == updatedSong.id) {
+        _queue[index] = updatedSong;
+        return;
+      }
+    }
+  }
+
+  bool _isExternalArtworkPath(String path) {
+    return path.startsWith('content://') ||
+        path.startsWith('http://') ||
+        path.startsWith('https://');
+  }
+
+  String _buildArtworkFileName(String title, String sourcePath) {
+    final extension = _artworkExtension(sourcePath);
+
+    final safeTitle = title
+        .trim()
+        .replaceAll(RegExp(r'[\\/:*?"<>|]'), '_')
+        .replaceAll(RegExp(r'\s+'), ' ');
+
+    final normalizedTitle = safeTitle.isEmpty ? 'sonara-cover' : safeTitle;
+
+    return '$normalizedTitle$extension';
+  }
+
+  String _artworkExtension(String path) {
+    final lastDot = path.lastIndexOf('.');
+
+    if (lastDot == -1 || lastDot == path.length - 1) {
+      return '.jpg';
+    }
+
+    final extension = path.substring(lastDot).toLowerCase();
+
+    switch (extension) {
+      case '.jpg':
+      case '.jpeg':
+      case '.png':
+        return extension;
+
+      default:
+        return '.jpg';
+    }
   }
 
   // ---------------------------------------------------------------------------
