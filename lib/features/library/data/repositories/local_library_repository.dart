@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:collection';
 import 'dart:io';
 
+import 'package:flutter/foundation.dart';
+
 import '../../domain/models/album.dart';
 import '../../domain/models/artist.dart';
 import '../../domain/models/song.dart';
@@ -14,7 +16,8 @@ import '../services/local_music_scanner.dart';
 import '../services/music_directory_service.dart';
 import '../services/replay_gain_service.dart';
 
-class LocalLibraryRepository implements LibraryRepository {
+class LocalLibraryRepository extends ChangeNotifier
+    implements LibraryRepository {
   static final LocalLibraryRepository _instance =
       LocalLibraryRepository._internal();
 
@@ -65,12 +68,61 @@ class LocalLibraryRepository implements LibraryRepository {
     return _songsView;
   }
 
-  /// Devuelve la biblioteca actual después de un escaneo/refresco.
+  /// Devuelve la biblioteca actual.
   ///
-  /// Se utiliza para sincronizar otros componentes que mantienen
-  /// referencias propias a las Song, como PlayerController.
+  /// Es una copia inmutable para evitar que otros componentes modifiquen
+  /// directamente la lista interna.
   List<Song> get currentSongs {
     return List<Song>.unmodifiable(_songs);
+  }
+
+  // ===========================================================================
+  // ACTUALIZAR UNA CANCIÓN
+  // ===========================================================================
+
+  /// Actualiza una única canción dentro de la biblioteca.
+  ///
+  /// Se utiliza para operaciones que modifican físicamente un archivo sin
+  /// necesidad de volver a escanear toda la biblioteca.
+  ///
+  /// Ejemplo:
+  ///
+  /// - eliminar carátula incrustada;
+  /// - cambiar metadata;
+  /// - modificar alguna propiedad de una canción.
+  ///
+  /// También persiste inmediatamente la biblioteca actualizada en cache
+  /// y notifica a los listeners para que LibraryPage pueda reconstruirse.
+  Future<void> updateSong(Song updatedSong) async {
+    await _ensureLibraryLoaded();
+
+    final index = _songs.indexWhere((song) => song.id == updatedSong.id);
+
+    if (index == -1) {
+      print(
+        '[SONARA LIBRARY] '
+        'No se encontró la canción para actualizar: '
+        '${updatedSong.filePath}',
+      );
+
+      return;
+    }
+
+    _songs[index] = updatedSong;
+
+    _songs.sort(
+      (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
+    );
+
+    await _libraryCacheService.saveSongs(_songs);
+
+    print(
+      '[SONARA LIBRARY] '
+      'Canción actualizada: '
+      '${updatedSong.title}',
+    );
+
+    notifyListeners();
   }
 
   // ===========================================================================
@@ -177,6 +229,8 @@ class LocalLibraryRepository implements LibraryRepository {
       );
 
       completer.complete();
+
+      notifyListeners();
     } catch (error, stackTrace) {
       completer.completeError(error, stackTrace);
 
@@ -350,13 +404,16 @@ class LocalLibraryRepository implements LibraryRepository {
     print('Archivo: ${file.path}');
     print('Anterior size: ${previousSong?.fileSize}');
     print('Actual size: $size');
-    print('Anterior modified: ${previousSong?.fileLastModified}');
+    print(
+      'Anterior modified: '
+      '${previousSong?.fileLastModified}',
+    );
     print('Actual modified: $modified');
     print('Título anterior: ${previousSong?.title}');
 
-    // ------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // ARCHIVO SIN CAMBIOS
-    // ------------------------------------------------------------
+    // -------------------------------------------------------------------------
 
     if (isSameFile) {
       final coverPath = previousSong!.coverPath;
@@ -420,9 +477,9 @@ class LocalLibraryRepository implements LibraryRepository {
       );
     }
 
-    // ------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // ARCHIVO MODIFICADO
-    // ------------------------------------------------------------
+    // -------------------------------------------------------------------------
 
     print(
       '[SONARA SCAN] '
@@ -432,7 +489,8 @@ class LocalLibraryRepository implements LibraryRepository {
     if (previousSong != null) {
       print(
         '[SONARA SCAN] '
-        'Conservando título anterior: "${previousSong.title}"',
+        'Conservando título anterior: '
+        '"${previousSong.title}"',
       );
 
       await _deletePreviousArtwork(previousSong);
@@ -449,19 +507,9 @@ class LocalLibraryRepository implements LibraryRepository {
       fileLastModified: modified,
     );
 
-    // ------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // OBTENER TÍTULO
-    // ------------------------------------------------------------
-    //
-    // 1. Si ya existe una canción anterior y tiene título válido,
-    //    conservarlo.
-    //
-    // 2. Si no existe canción anterior, usar solamente el nombre
-    //    del archivo, NO la ruta completa.
-    //
-    // 3. Si por alguna razón el título anterior ya era una ruta,
-    //    no conservar esa ruta como título.
-    //
+    // -------------------------------------------------------------------------
 
     String title;
 
@@ -494,37 +542,22 @@ class LocalLibraryRepository implements LibraryRepository {
       'Título final: "$title"',
     );
 
-    // ------------------------------------------------------------
+    // -------------------------------------------------------------------------
     // CREAR SONG ACTUALIZADO
-    // ------------------------------------------------------------
+    // -------------------------------------------------------------------------
 
     return Song(
       id: file.path,
       filePath: file.path,
-
-      // IMPORTANTE:
-      // La ruta nunca se utiliza como título si ya existe
-      // un título válido.
       title: title,
-
       artist: metadata.artist,
       album: metadata.album,
       duration: metadata.duration,
       coverPath: metadata.coverPath,
-
-      // La fecha de incorporación original no debe cambiar
-      // solamente porque se modificó la portada.
       dateAdded: previousSong?.dateAdded ?? stat.modified,
-
       source: SongSource.local,
-
-      // Mantener favoritos.
       isFavorite: previousSong?.isFavorite ?? false,
-
-      // ReplayGain se encargará posteriormente de actualizar
-      // este valor si corresponde.
       volumeGain: previousSong?.volumeGain,
-
       fileLastModified: modified,
       fileSize: size,
     );
@@ -540,14 +573,6 @@ class LocalLibraryRepository implements LibraryRepository {
     if (coverPath == null || coverPath.isEmpty) {
       return;
     }
-
-    // No intentamos borrar:
-    //
-    // content://...
-    // http://...
-    // https://...
-    //
-    // porque no son archivos controlados por nuestro cache local.
 
     if (coverPath.startsWith('content://') ||
         coverPath.startsWith('http://') ||
@@ -576,10 +601,7 @@ class LocalLibraryRepository implements LibraryRepository {
         '$coverPath',
       );
 
-      print(
-        '[SONARA COVER CACHE] '
-        '$error',
-      );
+      print('[SONARA COVER CACHE] $error');
     }
   }
 
@@ -661,8 +683,7 @@ class LocalLibraryRepository implements LibraryRepository {
 
     print(
       '[SONARA REPLAYGAIN] '
-      'Analizando: '
-      '${song.title}',
+      'Analizando: ${song.title}',
     );
 
     final gain = await _replayGainService.calculateTrackGain(song.filePath);
@@ -670,8 +691,7 @@ class LocalLibraryRepository implements LibraryRepository {
     if (gain == null) {
       print(
         '[SONARA REPLAYGAIN] '
-        'No se pudo calcular: '
-        '${song.title}',
+        'No se pudo calcular: ${song.title}',
       );
 
       return;
@@ -821,6 +841,8 @@ class LocalLibraryRepository implements LibraryRepository {
     _songs.sort(
       (a, b) => a.title.toLowerCase().compareTo(b.title.toLowerCase()),
     );
+
+    notifyListeners();
   }
 
   // ===========================================================================

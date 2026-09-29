@@ -37,6 +37,11 @@ class _LibraryPageState extends State<LibraryPage> {
   final PlaylistsRepository _playlistsRepository = PlaylistsRepository();
   final FavoritesRepository _favoritesRepository = FavoritesRepository();
 
+  // FIX ARTWORK:
+  // Guardamos la misma instancia de PlayerController para registrar
+  // y eliminar correctamente el listener.
+  late final PlayerController _playerController;
+
   List<Song> _songs = const [];
   List<Song> _favoriteSongs = const [];
   List<Album> _albums = const [];
@@ -54,6 +59,11 @@ class _LibraryPageState extends State<LibraryPage> {
   void initState() {
     super.initState();
 
+    // FIX ARTWORK:
+    // Registramos el listener directamente.
+    _playerController = context.read<PlayerController>();
+    _playerController.addListener(_handlePlayerChanged);
+
     _playlistsRepository.addListener(_handlePlaylistsChanged);
     _favoritesRepository.addListener(_handleFavoritesChanged);
 
@@ -64,6 +74,9 @@ class _LibraryPageState extends State<LibraryPage> {
 
   @override
   void dispose() {
+    // FIX ARTWORK:
+    _playerController.removeListener(_handlePlayerChanged);
+
     _playlistsRepository.removeListener(_handlePlaylistsChanged);
     _favoritesRepository.removeListener(_handleFavoritesChanged);
 
@@ -92,6 +105,61 @@ class _LibraryPageState extends State<LibraryPage> {
     setState(() {
       _playlists = List.unmodifiable(_playlistsRepository.playlists);
     });
+  }
+
+  // ============================================================
+  // FIX ARTWORK
+  // ============================================================
+  //
+  // PlayerController cambia _currentSong cuando se elimina
+  // la carátula, pero LibraryPage tenía otra instancia de Song
+  // dentro de _songs.
+  //
+  // Aquí sincronizamos solamente cuando realmente cambió algo
+  // relacionado con el artwork/archivo.
+  //
+  void _handlePlayerChanged() {
+    if (!mounted) {
+      return;
+    }
+
+    final currentSong = _playerController.currentSong;
+
+    if (currentSong == null) {
+      return;
+    }
+
+    final index = _songs.indexWhere((song) => song.id == currentSong.id);
+
+    if (index == -1) {
+      return;
+    }
+
+    final previousSong = _songs[index];
+
+    final artworkChanged =
+        previousSong.coverPath != currentSong.coverPath ||
+        previousSong.coverBytes != currentSong.coverBytes ||
+        previousSong.fileSize != currentSong.fileSize ||
+        previousSong.fileLastModified != currentSong.fileLastModified;
+
+    if (!artworkChanged) {
+      return;
+    }
+
+    final updatedSongs = List<Song>.from(_songs);
+
+    updatedSongs[index] = currentSong;
+
+    // Esto también reconstruye:
+    // - _albums
+    // - _artists
+    // - _favoriteSongs
+    //
+    // por lo que la modificación se refleja en toda LibraryPage.
+    _updateLibrary(updatedSongs);
+
+    setState(() {});
   }
 
   Future<void> _loadFavorites() async {
@@ -156,7 +224,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
       _updateLibrary(songs);
 
-      context.read<PlayerController>().syncLibrarySongs(songs);
+      _playerController.syncLibrarySongs(songs);
 
       setState(() {
         _hasLoaded = true;
@@ -195,7 +263,7 @@ class _LibraryPageState extends State<LibraryPage> {
 
       _updateLibrary(songs);
 
-      context.read<PlayerController>().syncLibrarySongs(songs);
+      _playerController.syncLibrarySongs(songs);
 
       setState(() {
         _hasLoaded = true;
@@ -226,12 +294,14 @@ class _LibraryPageState extends State<LibraryPage> {
 
     for (final song in _songs) {
       final rawAlbum = song.album?.trim();
-      final albumName = (rawAlbum != null && rawAlbum.isNotEmpty)
+
+      final albumName = rawAlbum != null && rawAlbum.isNotEmpty
           ? rawAlbum
           : _noAlbumKey;
 
       final rawArtist = song.artist?.trim();
-      final artistName = (rawArtist != null && rawArtist.isNotEmpty)
+
+      final artistName = rawArtist != null && rawArtist.isNotEmpty
           ? rawArtist
           : _unknownArtistKey;
 
@@ -270,6 +340,7 @@ class _LibraryPageState extends State<LibraryPage> {
     _artists = List.unmodifiable(artists);
 
     final songsById = <String, Song>{for (final song in _songs) song.id: song};
+
     final favorites = <Song>[];
 
     for (final songId in _favoritesRepository.favoriteIds) {
@@ -1392,11 +1463,37 @@ class _SongListTile extends StatelessWidget {
     final artist = song.artist?.trim() ?? '';
     final hasArtist = artist.isNotEmpty;
 
-    return Selector<PlayerController, bool>(
+    // ==========================================================
+    // FIX ARTWORK:
+    //
+    // Antes solo escuchábamos:
+    //
+    //   bool isCurrentSong
+    //
+    // Entonces, si la canción seguía siendo la actual:
+    //
+    //   true -> true
+    //
+    // Selector consideraba que NO había cambiado nada.
+    //
+    // Ahora también escuchamos coverPath.
+    // ==========================================================
+    return Selector<
+      PlayerController,
+      ({bool isCurrentSong, String? coverPath})
+    >(
       selector: (_, controller) {
-        return controller.currentSong?.id == song.id;
+        final currentSong = controller.currentSong;
+
+        final isCurrentSong = currentSong?.id == song.id;
+
+        final effectiveCoverPath = isCurrentSong
+            ? currentSong?.coverPath
+            : song.coverPath;
+
+        return (isCurrentSong: isCurrentSong, coverPath: effectiveCoverPath);
       },
-      builder: (context, isCurrentSong, _) {
+      builder: (context, state, _) {
         final theme = Theme.of(context);
 
         return ListTile(
@@ -1411,17 +1508,21 @@ class _SongListTile extends StatelessWidget {
           contentPadding: const EdgeInsets.only(left: 12, right: 0),
 
           leading: _LibraryArtwork(
-            coverPath: song.coverPath,
+            // FIX ARTWORK:
+            // Cambia la identidad del widget cuando la carátula
+            // pasa de existente -> null.
+            key: ValueKey('${song.id}_${state.coverPath ?? 'no_cover'}'),
+            coverPath: state.coverPath,
             size: 40,
             borderRadius: 6,
-            isPlaying: isCurrentSong,
+            isPlaying: state.isCurrentSong,
           ),
 
           title: Text(
             song.title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: isCurrentSong
+            style: state.isCurrentSong
                 ? theme.textTheme.bodyLarge?.copyWith(
                     color: theme.colorScheme.primary,
                     fontWeight: FontWeight.bold,
@@ -1640,12 +1741,14 @@ class _PlaylistListTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+
     final coverPath = songs.isNotEmpty ? songs.first.coverPath : null;
 
     return ListTile(
       contentPadding: EdgeInsets.zero,
       minVerticalPadding: 12,
       leading: _LibraryArtwork(
+        key: ValueKey('${playlist.id}_${coverPath ?? 'no_cover'}'),
         coverPath: coverPath,
         size: 40,
         borderRadius: 6,
@@ -1698,6 +1801,7 @@ class _AlbumListTile extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       minVerticalPadding: 12,
       leading: _LibraryArtwork(
+        key: ValueKey('${album.name}_${coverPath ?? 'no_cover'}'),
         coverPath: coverPath,
         size: 40,
         borderRadius: 6,
@@ -1750,6 +1854,7 @@ class _ArtistListTile extends StatelessWidget {
       contentPadding: EdgeInsets.zero,
       minVerticalPadding: 12,
       leading: _LibraryArtwork(
+        key: ValueKey('${artist.name}_${coverPath ?? 'no_cover'}'),
         coverPath: coverPath,
         size: 40,
         borderRadius: 6,
@@ -1774,6 +1879,10 @@ class _LibraryArtwork extends StatelessWidget {
   final bool isPlaying;
 
   const _LibraryArtwork({
+    // FIX ARTWORK:
+    // Necesario para que podamos cambiar la identidad
+    // del artwork cuando coverPath cambia.
+    super.key,
     required this.coverPath,
     required this.size,
     required this.borderRadius,
@@ -1890,7 +1999,9 @@ class _AndroidLibraryArtwork extends StatefulWidget {
 
 class _AndroidLibraryArtworkState extends State<_AndroidLibraryArtwork> {
   static const MethodChannel _channel = MethodChannel('sonara/media_store');
+
   static final Map<String, Uint8List?> _coverCache = {};
+
   static final Map<String, Future<Uint8List?>> _loadingCache = {};
 
   Uint8List? _bytes;
@@ -1907,6 +2018,8 @@ class _AndroidLibraryArtworkState extends State<_AndroidLibraryArtwork> {
     super.didUpdateWidget(oldWidget);
 
     if (oldWidget.uri != widget.uri) {
+      _bytes = null;
+      _loading = true;
       _loadCover();
     }
   }
@@ -1949,6 +2062,7 @@ class _AndroidLibraryArtworkState extends State<_AndroidLibraryArtwork> {
       });
 
       final bytes = await future;
+
       _coverCache[uri] = bytes;
 
       if (mounted) {

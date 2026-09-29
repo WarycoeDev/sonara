@@ -304,3 +304,205 @@ class LinuxAudioMetadataService {
     return hash.toRadixString(16);
   }
 }
+
+Future<bool> deleteEmbeddedArtwork(String filePath) async {
+  try {
+    final audioFile = File(filePath);
+
+    if (!await audioFile.exists()) {
+      print(
+        '[SONARA ARTWORK DELETE] '
+        'El archivo no existe: $filePath',
+      );
+
+      return false;
+    }
+
+    final directory = audioFile.parent;
+
+    final fileName = audioFile.uri.pathSegments.last;
+
+    final temporaryPath =
+        '${directory.path}'
+        '${Platform.pathSeparator}'
+        '.$fileName.sonara-no-artwork.tmp';
+
+    final temporaryFile = File(temporaryPath);
+
+    // -----------------------------------------------------------------------
+    // Limpiar temporal anterior si quedó de una operación interrumpida.
+    // -----------------------------------------------------------------------
+
+    if (await temporaryFile.exists()) {
+      try {
+        await temporaryFile.delete();
+      } catch (_) {}
+    }
+
+    print(
+      '[SONARA ARTWORK DELETE] '
+      'Eliminando artwork embebido: $filePath',
+    );
+
+    // -----------------------------------------------------------------------
+    // IMPORTANTE:
+    //
+    // -map 0:a
+    //      Conserva solamente el stream de audio.
+    //
+    // -map_metadata 0
+    //      Conserva los metadatos normales del audio.
+    //
+    // -c:a copy
+    //      NO recodifica el audio.
+    //
+    // El artwork embebido deja de formar parte del archivo porque
+    // ya no copiamos el stream/metadata de imagen.
+    // -----------------------------------------------------------------------
+
+    final result = await Process.run('ffmpeg', [
+      '-y',
+      '-i',
+      filePath,
+      '-map',
+      '0:a',
+      '-map_metadata',
+      '0',
+      '-map_chapters',
+      '0',
+      '-c:a',
+      'copy',
+      temporaryPath,
+    ]);
+
+    if (result.exitCode != 0) {
+      print(
+        '[SONARA ARTWORK DELETE] '
+        'ffmpeg falló.',
+      );
+
+      print(result.stderr);
+
+      if (await temporaryFile.exists()) {
+        try {
+          await temporaryFile.delete();
+        } catch (_) {}
+      }
+
+      return false;
+    }
+
+    if (!await temporaryFile.exists()) {
+      print(
+        '[SONARA ARTWORK DELETE] '
+        'ffmpeg terminó pero no creó el archivo temporal.',
+      );
+
+      return false;
+    }
+
+    final temporaryLength = await temporaryFile.length();
+
+    if (temporaryLength <= 0) {
+      print(
+        '[SONARA ARTWORK DELETE] '
+        'El archivo temporal está vacío.',
+      );
+
+      try {
+        await temporaryFile.delete();
+      } catch (_) {}
+
+      return false;
+    }
+
+    // -----------------------------------------------------------------------
+    // Reemplazar archivo original.
+    // -----------------------------------------------------------------------
+
+    final backupPath =
+        '${directory.path}'
+        '${Platform.pathSeparator}'
+        '.$fileName.sonara-backup';
+
+    final backupFile = File(backupPath);
+
+    try {
+      if (await backupFile.exists()) {
+        await backupFile.delete();
+      }
+
+      // Primero movemos el original a backup.
+      await audioFile.rename(backupPath);
+
+      try {
+        // Después colocamos el archivo sin artwork en su lugar.
+        await temporaryFile.rename(filePath);
+
+        // Si todo salió bien, eliminamos backup.
+        if (await backupFile.exists()) {
+          await backupFile.delete();
+        }
+      } catch (error) {
+        // ---------------------------------------------------------------------
+        // Rollback:
+        // Si no pudimos colocar el nuevo archivo, restauramos el original.
+        // ---------------------------------------------------------------------
+
+        print(
+          '[SONARA ARTWORK DELETE] '
+          'Error reemplazando archivo. Restaurando original: '
+          '$error',
+        );
+
+        if (await audioFile.exists()) {
+          try {
+            await audioFile.delete();
+          } catch (_) {}
+        }
+
+        if (await backupFile.exists()) {
+          await backupFile.rename(filePath);
+        }
+
+        if (await temporaryFile.exists()) {
+          try {
+            await temporaryFile.delete();
+          } catch (_) {}
+        }
+
+        return false;
+      }
+    } catch (error) {
+      print(
+        '[SONARA ARTWORK DELETE] '
+        'No se pudo reemplazar el archivo original: '
+        '$error',
+      );
+
+      if (await temporaryFile.exists()) {
+        try {
+          await temporaryFile.delete();
+        } catch (_) {}
+      }
+
+      return false;
+    }
+
+    print(
+      '[SONARA ARTWORK DELETE] '
+      'Artwork eliminado correctamente: $filePath',
+    );
+
+    return true;
+  } catch (error, stackTrace) {
+    print(
+      '[SONARA ARTWORK DELETE] '
+      'Error eliminando artwork: $error',
+    );
+
+    print(stackTrace);
+
+    return false;
+  }
+}

@@ -4,6 +4,7 @@ import 'dart:math';
 
 import 'package:flutter/foundation.dart';
 import 'package:just_audio/just_audio.dart';
+import 'package:sonara/features/library/data/repositories/local_library_repository.dart';
 
 import '../../../favorites/data/favorites_repository.dart';
 import '../../../library/domain/models/song.dart';
@@ -1307,56 +1308,121 @@ class PlayerController extends ChangeNotifier {
   /// En un siguiente escaneo de la biblioteca, el artwork embebido puede
   /// volver a extraerse. Eso es intencional mientras no implementemos
   /// escritura de metadatos ID3/FLAC.
+
   Future<bool> clearCurrentArtwork() async {
     if (_isDisposed || _currentSong == null) {
       return false;
     }
 
     final song = _currentSong!;
+    final audioPath = song.filePath;
     final coverPath = song.coverPath;
 
-    if (coverPath == null || coverPath.isEmpty) {
-      return false;
-    }
-
-    // No intentamos borrar content:// ni URLs externas.
-    if (_isExternalArtworkPath(coverPath)) {
-      debugPrint(
-        '[SONARA PLAYER ARTWORK] '
-        'No se puede eliminar una carátula externa: $coverPath',
-      );
-
+    if (audioPath.isEmpty) {
       return false;
     }
 
     try {
-      final file = File(coverPath);
+      debugPrint(
+        '[SONARA PLAYER ARTWORK] '
+        'Eliminando carátula incrustada de: $audioPath',
+      );
 
-      // Si ya no existe, consideramos que el estado ya está limpio.
-      if (await file.exists()) {
-        await file.delete();
+      // -------------------------------------------------------------------------
+      // 1. ELIMINAR LA CARÁTULA FÍSICAMENTE DEL AUDIO
+      // -------------------------------------------------------------------------
 
+      final removedFromAudio = await _artworkFileService.deleteEmbeddedArtwork(
+        filePath: audioPath,
+      );
+
+      if (!removedFromAudio) {
         debugPrint(
           '[SONARA PLAYER ARTWORK] '
-          'Carátula eliminada: $coverPath',
+          'No se pudo eliminar la carátula incrustada.',
         );
+
+        return false;
       }
 
-      // Es importante que Song.copyWith permita realmente
-      // coverPath: null.
-      final updatedSong = song.copyWith(coverPath: null);
+      // -------------------------------------------------------------------------
+      // 2. ELIMINAR EL CACHE DE LA CARÁTULA
+      // -------------------------------------------------------------------------
+
+      if (coverPath != null &&
+          coverPath.isNotEmpty &&
+          !_isExternalArtworkPath(coverPath)) {
+        try {
+          final coverFile = File(coverPath);
+
+          if (await coverFile.exists()) {
+            await coverFile.delete();
+
+            debugPrint(
+              '[SONARA PLAYER ARTWORK] '
+              'Cache de carátula eliminada: $coverPath',
+            );
+          }
+        } catch (error) {
+          // No hacemos fallar la operación completa si solamente falla
+          // el borrado del cache. El artwork ya fue eliminado físicamente
+          // del archivo de audio.
+          debugPrint(
+            '[SONARA PLAYER ARTWORK] '
+            'No se pudo eliminar el cache de carátula: $error',
+          );
+        }
+      }
+
+      // -------------------------------------------------------------------------
+      // 3. OBTENER LOS DATOS ACTUALES DEL ARCHIVO
+      // -------------------------------------------------------------------------
+
+      final audioFile = File(audioPath);
+
+      final stat = await audioFile.stat();
+
+      // -------------------------------------------------------------------------
+      // 4. CREAR SONG SIN CARÁTULA
+      // -------------------------------------------------------------------------
+
+      final updatedSong = song.copyWith(
+        coverPath: null,
+        coverBytes: null,
+        fileSize: stat.size,
+        fileLastModified: stat.modified.millisecondsSinceEpoch,
+      );
+
+      // -------------------------------------------------------------------------
+      // 5. ACTUALIZAR PLAYER
+      // -------------------------------------------------------------------------
 
       _replaceSongInQueue(updatedSong);
 
       _currentSong = updatedSong;
 
+      // -------------------------------------------------------------------------
+      // 6. ACTUALIZAR LIBRARY REPOSITORY + CACHE
+      // -------------------------------------------------------------------------
+
+      await LocalLibraryRepository().updateSong(updatedSong);
+
+      // -------------------------------------------------------------------------
+      // 7. NOTIFICAR A LOS LISTENERS DEL PLAYER
+      // -------------------------------------------------------------------------
+
       _notify();
+
+      debugPrint(
+        '[SONARA PLAYER ARTWORK] '
+        'Carátula eliminada correctamente del archivo de audio.',
+      );
 
       return true;
     } catch (error, stackTrace) {
       debugPrint(
         '[SONARA PLAYER ARTWORK] '
-        'No se pudo eliminar la carátula: $error',
+        'Error eliminando carátula: $error',
       );
 
       debugPrintStack(stackTrace: stackTrace);

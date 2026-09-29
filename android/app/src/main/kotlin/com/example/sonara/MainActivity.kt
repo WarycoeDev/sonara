@@ -1,3 +1,4 @@
+
 package com.example.sonara
 
 import android.Manifest
@@ -32,6 +33,25 @@ class MainActivity : AudioServiceActivity() {
 
     private val audioPermissionRequestCode = 1001
 
+    // =========================================================================
+    // MEDIASTORE WRITE REQUEST
+    // =========================================================================
+
+    private val mediaStoreWriteRequestCode = 2001
+
+    private var pendingMediaStoreResult:
+        MethodChannel.Result? = null
+
+    private var pendingMediaStoreUri:
+        Uri? = null
+
+    private var pendingMediaStoreTempPath:
+        String? = null
+
+    // =========================================================================
+    // EXTENSIONES
+    // =========================================================================
+
     private val supportedExtensions = setOf(
         "mp3",
         "m4a",
@@ -40,6 +60,10 @@ class MainActivity : AudioServiceActivity() {
         "flac",
         "ogg"
     )
+
+    // =========================================================================
+    // FLUTTER ENGINE
+    // =========================================================================
 
     override fun configureFlutterEngine(
         flutterEngine: FlutterEngine
@@ -189,6 +213,43 @@ class MainActivity : AudioServiceActivity() {
                 }
 
                 // =============================================================
+                // ELIMINAR ARTWORK EMBEBIDO
+                // =============================================================
+
+                "replaceMediaStoreAudio" -> {
+
+                    val sourcePath =
+                        call.argument<String>(
+                            "sourcePath"
+                        )
+
+                    val temporaryPath =
+                        call.argument<String>(
+                            "temporaryPath"
+                        )
+
+                    if (
+                        sourcePath.isNullOrEmpty() ||
+                        temporaryPath.isNullOrEmpty()
+                    ) {
+
+                        result.error(
+                            "INVALID_AUDIO_REPLACEMENT_DATA",
+                            "sourcePath y temporaryPath son obligatorios.",
+                            null
+                        )
+
+                        return@setMethodCallHandler
+                    }
+
+                    replaceMediaStoreAudio(
+                        sourcePath = sourcePath,
+                        temporaryPath = temporaryPath,
+                        result = result
+                    )
+                }
+
+                // =============================================================
                 // REPLAYGAIN
                 // =============================================================
 
@@ -242,6 +303,605 @@ class MainActivity : AudioServiceActivity() {
                     result.notImplemented()
                 }
             }
+        }
+    }
+
+    // =========================================================================
+    // MEDIASTORE: REEMPLAZAR AUDIO
+    // =========================================================================
+
+    private fun replaceMediaStoreAudio(
+        sourcePath: String,
+        temporaryPath: String,
+        result: MethodChannel.Result
+    ) {
+
+        val temporaryFile =
+            File(temporaryPath)
+
+        if (!temporaryFile.exists()) {
+
+            result.error(
+                "TEMPORARY_FILE_NOT_FOUND",
+                "El archivo temporal no existe: $temporaryPath",
+                null
+            )
+
+            return
+        }
+
+        if (!temporaryFile.isFile) {
+
+            result.error(
+                "TEMPORARY_FILE_INVALID",
+                "La ruta temporal no corresponde a un archivo.",
+                null
+            )
+
+            return
+        }
+
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
+
+            replaceAudioPreAndroid10(
+                sourcePath = sourcePath,
+                temporaryPath = temporaryPath,
+                result = result
+            )
+
+            return
+        }
+
+        try {
+
+            val mediaUri =
+                findMediaStoreAudioUri(
+                    sourcePath
+                )
+
+            if (mediaUri == null) {
+
+                result.error(
+                    "MEDIASTORE_URI_NOT_FOUND",
+                    "No se encontró el audio en MediaStore: $sourcePath",
+                    null
+                )
+
+                return
+            }
+
+            android.util.Log.d(
+                "SONARA_MEDIASTORE",
+                "URI encontrada: $mediaUri"
+            )
+
+            try {
+
+                copyTemporaryFileToMediaStore(
+                    mediaUri = mediaUri,
+                    temporaryFile = temporaryFile
+                )
+
+                temporaryFile.delete()
+
+                android.util.Log.d(
+                    "SONARA_MEDIASTORE",
+                    "Audio reemplazado correctamente."
+                )
+
+                result.success(true)
+
+            } catch (securityException: SecurityException) {
+
+                if (
+                    Build.VERSION.SDK_INT >=
+                    Build.VERSION_CODES.R
+                ) {
+
+                    requestMediaStoreWritePermission(
+                        mediaUri = mediaUri,
+                        temporaryPath = temporaryPath,
+                        result = result
+                    )
+
+                } else {
+
+                    result.error(
+                        "MEDIASTORE_WRITE_PERMISSION",
+                        "Android no permitió escribir el archivo.",
+                        null
+                    )
+                }
+            }
+
+        } catch (exception: Exception) {
+
+            android.util.Log.e(
+                "SONARA_MEDIASTORE",
+                "Error reemplazando audio.",
+                exception
+            )
+
+            result.error(
+                "MEDIASTORE_REPLACE_ERROR",
+                exception.message,
+                null
+            )
+        }
+    }
+
+    // =========================================================================
+    // BUSCAR URI DE MEDIASTORE
+    // =========================================================================
+
+    private fun findMediaStoreAudioUri(
+        sourcePath: String
+    ): Uri? {
+
+        val resolver =
+            contentResolver
+
+        val collection =
+            MediaStore.Audio.Media.getContentUri(
+                MediaStore.VOLUME_EXTERNAL_PRIMARY
+            )
+
+        val projection =
+            arrayOf(
+                MediaStore.Audio.Media._ID,
+                MediaStore.Audio.Media.DATA
+            )
+
+        val selection =
+            "${MediaStore.Audio.Media.DATA} = ?"
+
+        val selectionArgs =
+            arrayOf(
+                sourcePath
+            )
+
+        resolver.query(
+            collection,
+            projection,
+            selection,
+            selectionArgs,
+            null
+        )?.use { cursor ->
+
+            val idColumn =
+                cursor.getColumnIndex(
+                    MediaStore.Audio.Media._ID
+                )
+
+            if (
+                idColumn < 0
+            ) {
+                return null
+            }
+
+            if (
+                cursor.moveToFirst()
+            ) {
+
+                val id =
+                    cursor.getLong(
+                        idColumn
+                    )
+
+                return Uri.withAppendedPath(
+                    collection,
+                    id.toString()
+                )
+            }
+        }
+
+        return null
+    }
+
+    // =========================================================================
+    // COPIAR TEMPORAL → MEDIASTORE
+    // =========================================================================
+
+    private fun copyTemporaryFileToMediaStore(
+        mediaUri: Uri,
+        temporaryFile: File
+    ) {
+
+        val resolver =
+            contentResolver
+
+        resolver.openOutputStream(
+            mediaUri,
+            "w"
+        ).use { outputStream ->
+
+            if (
+                outputStream == null
+            ) {
+
+                throw IllegalStateException(
+                    "MediaStore no pudo abrir el archivo para escritura."
+                )
+            }
+
+            temporaryFile.inputStream().use { inputStream ->
+
+                val buffer =
+                    ByteArray(
+                        64 * 1024
+                    )
+
+                while (true) {
+
+                    val bytesRead =
+                        inputStream.read(
+                            buffer
+                        )
+
+                    if (
+                        bytesRead == -1
+                    ) {
+                        break
+                    }
+
+                    outputStream.write(
+                        buffer,
+                        0,
+                        bytesRead
+                    )
+                }
+
+                outputStream.flush()
+            }
+        }
+
+        // Actualizar información del elemento.
+        try {
+
+            val values =
+                ContentValues().apply {
+
+                    put(
+                        MediaStore.Audio.Media.DATE_MODIFIED,
+                        System.currentTimeMillis() / 1000L
+                    )
+                }
+
+            resolver.update(
+                mediaUri,
+                values,
+                null,
+                null
+            )
+
+        } catch (_: Exception) {
+            // El contenido ya fue reemplazado.
+        }
+    }
+
+    // =========================================================================
+    // SOLICITAR PERMISO DE ESCRITURA MEDIASTORE
+    // =========================================================================
+
+    private fun requestMediaStoreWritePermission(
+        mediaUri: Uri,
+        temporaryPath: String,
+        result: MethodChannel.Result
+    ) {
+
+        if (
+            pendingMediaStoreResult != null
+        ) {
+
+            result.error(
+                "MEDIASTORE_WRITE_BUSY",
+                "Ya existe una solicitud de escritura pendiente.",
+                null
+            )
+
+            return
+        }
+
+        try {
+
+            val writeRequest =
+                MediaStore.createWriteRequest(
+                    contentResolver,
+                    listOf(
+                        mediaUri
+                    )
+                )
+
+            pendingMediaStoreResult =
+                result
+
+            pendingMediaStoreUri =
+                mediaUri
+
+            pendingMediaStoreTempPath =
+                temporaryPath
+
+            android.util.Log.d(
+                "SONARA_MEDIASTORE",
+                "Solicitando permiso para modificar: $mediaUri"
+            )
+
+            startIntentSenderForResult(
+                writeRequest.intentSender,
+                mediaStoreWriteRequestCode,
+                null,
+                0,
+                0,
+                0
+            )
+
+        } catch (exception: Exception) {
+
+            pendingMediaStoreResult =
+                null
+
+            pendingMediaStoreUri =
+                null
+
+            pendingMediaStoreTempPath =
+                null
+
+            result.error(
+                "MEDIASTORE_WRITE_REQUEST_ERROR",
+                exception.message,
+                null
+            )
+        }
+    }
+
+    // =========================================================================
+    // RESULTADO DEL PERMISO MEDIASTORE
+    // =========================================================================
+
+    override fun onActivityResult(
+        requestCode: Int,
+        resultCode: Int,
+        data: Intent?
+    ) {
+
+        super.onActivityResult(
+            requestCode,
+            resultCode,
+            data
+        )
+
+        if (
+            requestCode !=
+            mediaStoreWriteRequestCode
+        ) {
+            return
+        }
+
+        val result =
+            pendingMediaStoreResult
+
+        val mediaUri =
+            pendingMediaStoreUri
+
+        val temporaryPath =
+            pendingMediaStoreTempPath
+
+        pendingMediaStoreResult =
+            null
+
+        pendingMediaStoreUri =
+            null
+
+        pendingMediaStoreTempPath =
+            null
+
+        if (
+            result == null ||
+            mediaUri == null ||
+            temporaryPath == null
+        ) {
+            return
+        }
+
+        // =====================================================================
+        // USUARIO RECHAZÓ
+        // =====================================================================
+
+        if (
+            resultCode != RESULT_OK
+        ) {
+
+            android.util.Log.d(
+                "SONARA_MEDIASTORE",
+                "El usuario rechazó el permiso de escritura."
+            )
+
+            result.success(false)
+
+            return
+        }
+
+        // =====================================================================
+        // USUARIO AUTORIZÓ
+        // =====================================================================
+
+        Thread {
+
+            try {
+
+                val temporaryFile =
+                    File(
+                        temporaryPath
+                    )
+
+                if (
+                    !temporaryFile.exists()
+                ) {
+
+                    runOnUiThread {
+
+                        result.error(
+                            "TEMPORARY_FILE_NOT_FOUND",
+                            "El archivo temporal ya no existe.",
+                            null
+                        )
+                    }
+
+                    return@Thread
+                }
+
+                copyTemporaryFileToMediaStore(
+                    mediaUri = mediaUri,
+                    temporaryFile = temporaryFile
+                )
+
+                temporaryFile.delete()
+
+                android.util.Log.d(
+                    "SONARA_MEDIASTORE",
+                    "Audio reemplazado después de autorización."
+                )
+
+                runOnUiThread {
+
+                    result.success(true)
+                }
+
+            } catch (exception: Exception) {
+
+                android.util.Log.e(
+                    "SONARA_MEDIASTORE",
+                    "Error copiando después de autorización.",
+                    exception
+                )
+
+                runOnUiThread {
+
+                    result.error(
+                        "MEDIASTORE_REPLACE_AFTER_PERMISSION_ERROR",
+                        exception.message,
+                        null
+                    )
+                }
+            }
+
+        }.start()
+    }
+
+    // =========================================================================
+    // ANDROID 9 E INFERIORES
+    // =========================================================================
+
+    private fun replaceAudioPreAndroid10(
+        sourcePath: String,
+        temporaryPath: String,
+        result: MethodChannel.Result
+    ) {
+
+        try {
+
+            val sourceFile =
+                File(sourcePath)
+
+            val temporaryFile =
+                File(temporaryPath)
+
+            if (!sourceFile.exists()) {
+
+                result.error(
+                    "SOURCE_FILE_NOT_FOUND",
+                    "El archivo original no existe.",
+                    null
+                )
+
+                return
+            }
+
+            if (!temporaryFile.exists()) {
+
+                result.error(
+                    "TEMPORARY_FILE_NOT_FOUND",
+                    "El archivo temporal no existe.",
+                    null
+                )
+
+                return
+            }
+
+            val backupFile =
+                File(
+                    "$sourcePath.sonara-backup"
+                )
+
+            if (
+                backupFile.exists()
+            ) {
+
+                backupFile.delete()
+            }
+
+            sourceFile.renameTo(
+                backupFile
+            )
+
+            try {
+
+                if (
+                    !temporaryFile.renameTo(
+                        sourceFile
+                    )
+                ) {
+
+                    throw IllegalStateException(
+                        "No se pudo colocar el archivo temporal."
+                    )
+                }
+
+                backupFile.delete()
+
+                result.success(true)
+
+            } catch (exception: Exception) {
+
+                try {
+
+                    if (
+                        sourceFile.exists()
+                    ) {
+                        sourceFile.delete()
+                    }
+
+                } catch (_: Exception) {
+                }
+
+                try {
+
+                    if (
+                        backupFile.exists()
+                    ) {
+
+                        backupFile.renameTo(
+                            sourceFile
+                        )
+                    }
+
+                } catch (_: Exception) {
+                }
+
+                result.error(
+                    "LEGACY_AUDIO_REPLACE_ERROR",
+                    exception.message,
+                    null
+                )
+            }
+
+        } catch (exception: Exception) {
+
+            result.error(
+                "LEGACY_AUDIO_REPLACE_ERROR",
+                exception.message,
+                null
+            )
         }
     }
 
