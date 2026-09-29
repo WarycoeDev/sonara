@@ -51,7 +51,19 @@ class PlayerController extends ChangeNotifier {
 
   bool _isChangingTrack = false;
 
+  // ---------------------------------------------------------------------------
+  // ESTADÍSTICAS
+  // ---------------------------------------------------------------------------
+
+  /// Indica si la reproducción actual ya fue registrada.
+  ///
+  /// Se reinicia cada vez que cambia la canción.
   bool _hasRegisteredCurrentPlayback = false;
+
+  /// Evita registrar dos veces la misma reproducción si varios eventos
+  /// del reproductor intentan llamar a _registerCurrentPlayback()
+  /// prácticamente al mismo tiempo.
+  Future<void>? _playbackRegistrationFuture;
 
   SonaraRepeatMode _repeatMode = SonaraRepeatMode.off;
 
@@ -207,7 +219,7 @@ class PlayerController extends ChangeNotifier {
     _currentSong = song;
 
     if (changed) {
-      _hasRegisteredCurrentPlayback = false;
+      _resetCurrentPlaybackStatistics();
 
       _position = Duration.zero;
 
@@ -420,19 +432,58 @@ class PlayerController extends ChangeNotifier {
   // ESTADÍSTICAS
   // ---------------------------------------------------------------------------
 
+  /// Reinicia el estado de registro para una nueva canción.
+  ///
+  /// Esto NO modifica las estadísticas guardadas. Solamente permite que
+  /// la nueva reproducción pueda registrarse.
+  void _resetCurrentPlaybackStatistics() {
+    _hasRegisteredCurrentPlayback = false;
+    _playbackRegistrationFuture = null;
+  }
+
+  /// Registra una reproducción de la canción actual.
+  ///
+  /// Se registra una sola vez por reproducción de la canción.
+  ///
+  /// Si registerPlay() falla, la reproducción NO queda marcada como
+  /// registrada, por lo que un siguiente evento de reproducción puede
+  /// volver a intentarlo.
   void _registerCurrentPlayback() {
     if (_isDisposed || _currentSong == null || _hasRegisteredCurrentPlayback) {
       return;
     }
 
-    _hasRegisteredCurrentPlayback = true;
+    // Ya existe una petición en curso para esta reproducción.
+    if (_playbackRegistrationFuture != null) {
+      return;
+    }
 
-    _registerPlaybackAsync(_currentSong!);
+    final song = _currentSong!;
+
+    final future = _registerPlaybackAsync(song);
+
+    _playbackRegistrationFuture = future;
+
+    unawaited(
+      future.whenComplete(() {
+        if (identical(_playbackRegistrationFuture, future)) {
+          _playbackRegistrationFuture = null;
+        }
+      }),
+    );
   }
 
   Future<void> _registerPlaybackAsync(Song song) async {
     try {
       await _statisticsRepository.registerPlay(song.id);
+
+      // Solamente marcamos como registrado DESPUÉS de que
+      // StatisticsRepository haya guardado correctamente el contador.
+      //
+      // Esto permite reintentar si SharedPreferences falla.
+      if (!_isDisposed && _currentSong?.id == song.id) {
+        _hasRegisteredCurrentPlayback = true;
+      }
     } catch (error, stackTrace) {
       debugPrint(
         '[SONARA STATISTICS ERROR] '
@@ -488,7 +539,7 @@ class PlayerController extends ChangeNotifier {
 
     _currentSong = song;
 
-    _hasRegisteredCurrentPlayback = false;
+    _resetCurrentPlaybackStatistics();
 
     _position = Duration.zero;
 
@@ -534,6 +585,12 @@ class PlayerController extends ChangeNotifier {
 
       _isPlaying = _audioPlayerService.playing;
 
+      // Si el stream de just_audio todavía no emitió el cambio de estado,
+      // registramos aquí cuando sabemos que el audio ya está reproduciéndose.
+      if (_isPlaying) {
+        _registerCurrentPlayback();
+      }
+
       _notify();
     } catch (error, stackTrace) {
       debugPrint(
@@ -575,7 +632,7 @@ class PlayerController extends ChangeNotifier {
 
     _currentSong = song;
 
-    _hasRegisteredCurrentPlayback = false;
+    _resetCurrentPlaybackStatistics();
 
     _position = Duration.zero;
 
@@ -616,6 +673,8 @@ class PlayerController extends ChangeNotifier {
 
       if (_isPlaying) {
         _positionAnchorTime = DateTime.now();
+
+        _registerCurrentPlayback();
       }
 
       _notify();
@@ -1198,7 +1257,7 @@ class PlayerController extends ChangeNotifier {
 
     _isFavorite = false;
 
-    _hasRegisteredCurrentPlayback = false;
+    _resetCurrentPlaybackStatistics();
 
     _notify();
   }
@@ -1285,13 +1344,6 @@ class PlayerController extends ChangeNotifier {
       final stat = await audioFile.stat();
 
       // Creamos una nueva instancia de Song.
-      //
-      // coverPath se conserva porque puede ser una ruta de cache,
-      // content://, etc.
-      //
-      // coverBytes recibe inmediatamente la nueva imagen para que
-      // la interfaz no tenga que esperar a que se vuelva a escanear
-      // toda la biblioteca.
       final updatedSong = song.copyWith(
         coverBytes: artworkBytes,
         fileSize: stat.size,
@@ -1312,8 +1364,6 @@ class PlayerController extends ChangeNotifier {
       }
 
       // Esto NO reinicia el audio.
-      // Solamente hace que PlayerPage, LibraryPage, Queue, etc.
-      // reciban el nuevo Song.
       _notify();
 
       return true;
@@ -1330,11 +1380,6 @@ class PlayerController extends ChangeNotifier {
   }
 
   /// Guarda la carátula actual usando FilePicker.
-  ///
-  /// El ArtworkFileService se encarga de abrir el selector de archivos
-  /// y escribir los bytes, por lo que funciona también cuando Android
-  /// devuelve una URI SAF en lugar de una ruta física.
-
   Future<bool> saveCurrentArtwork() async {
     if (_isDisposed || _currentSong == null) {
       return false;
@@ -1381,16 +1426,7 @@ class PlayerController extends ChangeNotifier {
     }
   }
 
-  /// Elimina la carátula cacheada actualmente.
-  ///
-  /// Esto NO modifica la carátula incrustada dentro del archivo de audio.
-  /// Solamente elimina nuestra copia cacheada y deja coverPath en null
-  /// dentro del PlayerController.
-  ///
-  /// En un siguiente escaneo de la biblioteca, el artwork embebido puede
-  /// volver a extraerse. Eso es intencional mientras no implementemos
-  /// escritura de metadatos ID3/FLAC.
-
+  /// Elimina la carátula incrustada y su cache local.
   Future<bool> clearCurrentArtwork() async {
     if (_isDisposed || _currentSong == null) {
       return false;
@@ -1410,9 +1446,9 @@ class PlayerController extends ChangeNotifier {
         'Eliminando carátula incrustada de: $audioPath',
       );
 
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
       // 1. ELIMINAR LA CARÁTULA FÍSICAMENTE DEL AUDIO
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
 
       final removedFromAudio = await _artworkFileService.deleteEmbeddedArtwork(
         filePath: audioPath,
@@ -1427,9 +1463,9 @@ class PlayerController extends ChangeNotifier {
         return false;
       }
 
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
       // 2. ELIMINAR EL CACHE DE LA CARÁTULA
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
 
       if (coverPath != null &&
           coverPath.isNotEmpty &&
@@ -1446,9 +1482,6 @@ class PlayerController extends ChangeNotifier {
             );
           }
         } catch (error) {
-          // No hacemos fallar la operación completa si solamente falla
-          // el borrado del cache. El artwork ya fue eliminado físicamente
-          // del archivo de audio.
           debugPrint(
             '[SONARA PLAYER ARTWORK] '
             'No se pudo eliminar el cache de carátula: $error',
@@ -1456,17 +1489,17 @@ class PlayerController extends ChangeNotifier {
         }
       }
 
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
       // 3. OBTENER LOS DATOS ACTUALES DEL ARCHIVO
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
 
       final audioFile = File(audioPath);
 
       final stat = await audioFile.stat();
 
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
       // 4. CREAR SONG SIN CARÁTULA
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
 
       final updatedSong = song.copyWith(
         coverPath: null,
@@ -1475,23 +1508,23 @@ class PlayerController extends ChangeNotifier {
         fileLastModified: stat.modified.millisecondsSinceEpoch,
       );
 
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
       // 5. ACTUALIZAR PLAYER
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
 
       _replaceSongInQueue(updatedSong);
 
       _currentSong = updatedSong;
 
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
       // 6. ACTUALIZAR LIBRARY REPOSITORY + CACHE
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
 
       await LocalLibraryRepository().updateSong(updatedSong);
 
-      // -------------------------------------------------------------------------
-      // 7. NOTIFICAR A LOS LISTENERS DEL PLAYER
-      // -------------------------------------------------------------------------
+      // -----------------------------------------------------------------------
+      // 7. NOTIFICAR
+      // -----------------------------------------------------------------------
 
       _notify();
 
