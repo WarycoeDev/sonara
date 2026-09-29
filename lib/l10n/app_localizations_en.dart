@@ -621,4 +621,35 @@ class AppLocalizationsEn extends AppLocalizations {
 
   @override
   String get enterFileName => 'Enter a name for the file.';
+
+  @override
+  String get saveArtwork => 'Save artwork';
+
+  @override
+  String get artworkSaved => 'Artwork saved successfully.';
+
+  @override
+  String get artworkSaveFailed => 'Could not save artwork.';
+
+  @override
+  String get deleteArtwork => 'Delete artwork';
+
+  @override
+  String get deleteArtworkQuestion =>
+      'Do you want to delete the artwork from this song?';
+
+  @override
+  String get artworkDeleted => 'Artwork deleted.';
+
+  @override
+  String get artworkDeleteFailed => 'Could not delete artwork.';
+
+  @override
+  String get changeArtwork => 'Change artwork';
+
+  @override
+  String get artworkChanged => 'Artwork changed successfully.';
+
+  @override
+  String get artworkChangeFailed => 'Could not change artwork.';
 }

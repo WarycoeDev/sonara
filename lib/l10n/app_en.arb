@@ -213,6 +213,19 @@
   "download": "Download",
   "enterFileName": "Enter a name for the file.",
 
+
+  "saveArtwork": "Save artwork",
+  "artworkSaved": "Artwork saved successfully.",
+  "artworkSaveFailed": "Could not save artwork.",
+  "deleteArtwork": "Delete artwork",
+  "deleteArtworkQuestion": "Do you want to delete the artwork from this song?",
+  "artworkDeleted": "Artwork deleted.",
+  "artworkDeleteFailed": "Could not delete artwork.",
+  "changeArtwork": "Change artwork",
+  "artworkChanged": "Artwork changed successfully.",
+  "artworkChangeFailed": "Could not change artwork.",
+
+
   "localResults": "{count, plural, =1 {1 local result} other {{count} local results}}",
   "@localResults": {
     "description": "Number of results found in the local library",

@@ -626,4 +626,35 @@ class AppLocalizationsEs extends AppLocalizations {
 
   @override
   String get enterFileName => 'Escribe un nombre para el archivo.';
+
+  @override
+  String get saveArtwork => 'Guardar carátula';
+
+  @override
+  String get artworkSaved => 'Carátula guardada correctamente.';
+
+  @override
+  String get artworkSaveFailed => 'No se pudo guardar la carátula.';
+
+  @override
+  String get deleteArtwork => 'Borrar carátula';
+
+  @override
+  String get deleteArtworkQuestion =>
+      '¿Quieres borrar la carátula de esta canción?';
+
+  @override
+  String get artworkDeleted => 'Carátula borrada.';
+
+  @override
+  String get artworkDeleteFailed => 'No se pudo borrar la carátula.';
+
+  @override
+  String get changeArtwork => 'Cambiar carátula';
+
+  @override
+  String get artworkChanged => 'Carátula cambiada correctamente.';
+
+  @override
+  String get artworkChangeFailed => 'No se pudo cambiar la carátula.';
 }

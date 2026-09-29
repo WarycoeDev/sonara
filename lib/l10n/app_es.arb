@@ -263,6 +263,18 @@
   "enterFileName": "Escribe un nombre para el archivo.",
 
 
+  "saveArtwork": "Guardar carátula",
+  "artworkSaved": "Carátula guardada correctamente.",
+  "artworkSaveFailed": "No se pudo guardar la carátula.",
+  "deleteArtwork": "Borrar carátula",
+  "deleteArtworkQuestion": "¿Quieres borrar la carátula de esta canción?",
+  "artworkDeleted": "Carátula borrada.",
+  "artworkDeleteFailed": "No se pudo borrar la carátula.",
+  "changeArtwork": "Cambiar carátula",
+  "artworkChanged": "Carátula cambiada correctamente.",
+  "artworkChangeFailed": "No se pudo cambiar la carátula.",
+
+
 
   "localResults": "{count, plural, =1 {1 resultado local} other {{count} resultados locales}}",
   "@localResults": {

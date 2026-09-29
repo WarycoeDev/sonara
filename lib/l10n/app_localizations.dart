@@ -1153,6 +1153,66 @@ abstract class AppLocalizations {
   /// In es, this message translates to:
   /// **'Escribe un nombre para el archivo.'**
   String get enterFileName;
+
+  /// No description provided for @saveArtwork.
+  ///
+  /// In es, this message translates to:
+  /// **'Guardar carátula'**
+  String get saveArtwork;
+
+  /// No description provided for @artworkSaved.
+  ///
+  /// In es, this message translates to:
+  /// **'Carátula guardada correctamente.'**
+  String get artworkSaved;
+
+  /// No description provided for @artworkSaveFailed.
+  ///
+  /// In es, this message translates to:
+  /// **'No se pudo guardar la carátula.'**
+  String get artworkSaveFailed;
+
+  /// No description provided for @deleteArtwork.
+  ///
+  /// In es, this message translates to:
+  /// **'Borrar carátula'**
+  String get deleteArtwork;
+
+  /// No description provided for @deleteArtworkQuestion.
+  ///
+  /// In es, this message translates to:
+  /// **'¿Quieres borrar la carátula de esta canción?'**
+  String get deleteArtworkQuestion;
+
+  /// No description provided for @artworkDeleted.
+  ///
+  /// In es, this message translates to:
+  /// **'Carátula borrada.'**
+  String get artworkDeleted;
+
+  /// No description provided for @artworkDeleteFailed.
+  ///
+  /// In es, this message translates to:
+  /// **'No se pudo borrar la carátula.'**
+  String get artworkDeleteFailed;
+
+  /// No description provided for @changeArtwork.
+  ///
+  /// In es, this message translates to:
+  /// **'Cambiar carátula'**
+  String get changeArtwork;
+
+  /// No description provided for @artworkChanged.
+  ///
+  /// In es, this message translates to:
+  /// **'Carátula cambiada correctamente.'**
+  String get artworkChanged;
+
+  /// No description provided for @artworkChangeFailed.
+  ///
+  /// In es, this message translates to:
+  /// **'No se pudo cambiar la carátula.'**
+  String get artworkChangeFailed;
 }
 
 class _AppLocalizationsDelegate

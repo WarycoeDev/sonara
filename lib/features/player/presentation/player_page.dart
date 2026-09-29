@@ -278,7 +278,6 @@ class _AlbumArtwork extends StatelessWidget {
   Widget _buildArtwork(BuildContext context) {
     final bytes = coverBytes;
 
-    // La portada recién cambiada tiene prioridad.
     if (bytes != null && bytes.isNotEmpty) {
       return _buildMemoryArtwork(context, bytes);
     }
@@ -366,13 +365,15 @@ class _ArtworkMenu extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+
     return SafeArea(
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(
             leading: const Icon(Icons.save_alt),
-            title: const Text('Guardar carátula'),
+            title: Text(l10n.saveArtwork),
             enabled: hasArtwork,
             onTap: !hasArtwork
                 ? null
@@ -392,9 +393,7 @@ class _ArtworkMenu extends StatelessWidget {
                     messenger?.showSnackBar(
                       SnackBar(
                         content: Text(
-                          saved
-                              ? 'Carátula guardada correctamente.'
-                              : 'No se pudo guardar la carátula.',
+                          saved ? l10n.artworkSaved : l10n.artworkSaveFailed,
                         ),
                       ),
                     );
@@ -403,7 +402,7 @@ class _ArtworkMenu extends StatelessWidget {
 
           ListTile(
             leading: const Icon(Icons.delete_outline),
-            title: const Text('Borrar carátula'),
+            title: Text(l10n.deleteArtwork),
             enabled: hasArtwork,
             onTap: !hasArtwork
                 ? null
@@ -430,8 +429,8 @@ class _ArtworkMenu extends StatelessWidget {
                       SnackBar(
                         content: Text(
                           deleted
-                              ? 'Carátula borrada.'
-                              : 'No se pudo borrar la carátula.',
+                              ? l10n.artworkDeleted
+                              : l10n.artworkDeleteFailed,
                         ),
                       ),
                     );
@@ -440,7 +439,7 @@ class _ArtworkMenu extends StatelessWidget {
 
           ListTile(
             leading: const Icon(Icons.image_outlined),
-            title: const Text('Cambiar carátula'),
+            title: Text(l10n.changeArtwork),
             onTap: () async {
               Navigator.of(sheetContext, rootNavigator: true).pop();
 
@@ -462,9 +461,7 @@ class _ArtworkMenu extends StatelessWidget {
               messenger?.showSnackBar(
                 SnackBar(
                   content: Text(
-                    result
-                        ? 'Carátula cambiada correctamente.'
-                        : 'No se pudo cambiar la carátula.',
+                    result ? l10n.artworkChanged : l10n.artworkChangeFailed,
                   ),
                 ),
               );
@@ -478,24 +475,26 @@ class _ArtworkMenu extends StatelessWidget {
   }
 
   Future<bool> _confirmDelete(BuildContext context) async {
+    final l10n = AppLocalizations.of(context)!;
+
     final result = await showDialog<bool>(
       context: context,
       builder: (dialogContext) {
         return AlertDialog(
-          title: const Text('Borrar carátula'),
-          content: const Text('¿Quieres borrar la carátula de esta canción?'),
+          title: Text(l10n.deleteArtwork),
+          content: Text(l10n.deleteArtworkQuestion),
           actions: [
             TextButton(
               onPressed: () {
                 Navigator.of(dialogContext).pop(false);
               },
-              child: const Text('Cancelar'),
+              child: Text(l10n.cancel),
             ),
             FilledButton(
               onPressed: () {
                 Navigator.of(dialogContext).pop(true);
               },
-              child: const Text('Borrar'),
+              child: Text(l10n.remove),
             ),
           ],
         );
@@ -1495,7 +1494,6 @@ class _QueueArtwork extends StatelessWidget {
   Widget build(BuildContext context) {
     final bytes = coverBytes;
 
-    // La portada nueva tiene prioridad.
     if (bytes != null && bytes.isNotEmpty) {
       return Stack(
         alignment: Alignment.center,
