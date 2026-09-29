@@ -15,6 +15,10 @@ class YouTubeDownloadDialog {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
+      backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+      shape: const RoundedRectangleBorder(
+        borderRadius: BorderRadius.vertical(top: Radius.circular(28)),
+      ),
       builder: (context) {
         return _YouTubeDownloadSheet(result: result);
       },
@@ -82,7 +86,7 @@ class _YouTubeDownloadSheetState extends State<_YouTubeDownloadSheet> {
       child: SafeArea(
         top: false,
         child: SingleChildScrollView(
-          padding: const EdgeInsets.fromLTRB(24, 8, 24, 24),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
@@ -94,98 +98,119 @@ class _YouTubeDownloadSheetState extends State<_YouTubeDownloadSheet> {
               Text(
                 l10n.downloadAudio,
                 style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                 ),
               ),
 
-              const SizedBox(height: 20),
+              const SizedBox(height: 16),
 
               // =========================================================
               // INFORMACIÓN DEL VIDEO
               // =========================================================
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    child: Image.network(
-                      widget.result.thumbnailUrl,
-                      width: 112,
-                      height: 63,
-                      fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) {
-                        return Container(
+              Material(
+                color: colorScheme.surfaceContainer,
+                borderRadius: BorderRadius.circular(20),
+                clipBehavior: Clip.antiAlias,
+                child: Padding(
+                  padding: const EdgeInsets.all(12),
+                  child: Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      ClipRRect(
+                        borderRadius: BorderRadius.circular(14),
+                        child: Image.network(
+                          widget.result.thumbnailUrl,
                           width: 112,
                           height: 63,
-                          color: colorScheme.surfaceContainerHighest,
-                          child: Icon(
-                            Icons.music_note_rounded,
-                            color: colorScheme.onSurfaceVariant,
-                          ),
-                        );
-                      },
-                    ),
-                  ),
-
-                  const SizedBox(width: 14),
-
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          widget.result.title,
-                          maxLines: 2,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodyLarge?.copyWith(
-                            fontWeight: FontWeight.w700,
-                          ),
+                          fit: BoxFit.cover,
+                          errorBuilder: (context, error, stackTrace) {
+                            return Container(
+                              width: 112,
+                              height: 63,
+                              color: colorScheme.surfaceContainerHighest,
+                              child: Icon(
+                                Icons.music_note_rounded,
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            );
+                          },
                         ),
+                      ),
 
-                        const SizedBox(height: 4),
+                      const SizedBox(width: 12),
 
-                        Text(
-                          widget.result.author,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: theme.textTheme.bodySmall?.copyWith(
-                            color: colorScheme.onSurfaceVariant,
-                          ),
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              widget.result.title,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+
+                            const SizedBox(height: 3),
+
+                            Text(
+                              widget.result.author,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
                         ),
-                      ],
-                    ),
+                      ),
+                    ],
                   ),
-                ],
+                ),
               ),
 
-              const SizedBox(height: 28),
+              const SizedBox(height: 24),
 
               // =========================================================
               // NOMBRE DEL ARCHIVO
               // =========================================================
               Text(
                 l10n.fileName,
-                style: theme.textTheme.labelLarge?.copyWith(
+                style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
 
               const SizedBox(height: 8),
 
-              TextField(
-                controller: _fileNameController,
-                textCapitalization: TextCapitalization.sentences,
-                decoration: InputDecoration(
-                  prefixIcon: const Icon(
-                    Icons.drive_file_rename_outline_rounded,
-                  ),
-                  suffixText: '.mp3',
-                  suffixStyle: TextStyle(
-                    color: colorScheme.onSurfaceVariant,
-                    fontWeight: FontWeight.w600,
-                  ),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(14),
+              Material(
+                color: colorScheme.surfaceContainer,
+                borderRadius: BorderRadius.circular(20),
+                clipBehavior: Clip.antiAlias,
+                child: TextField(
+                  controller: _fileNameController,
+                  textCapitalization: TextCapitalization.sentences,
+                  style: const TextStyle(fontWeight: FontWeight.w500),
+                  decoration: InputDecoration(
+                    prefixIcon: Icon(
+                      Icons.drive_file_rename_outline_rounded,
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                    suffixText: '.mp3',
+                    suffixStyle: TextStyle(
+                      color: colorScheme.onSurfaceVariant,
+                      fontWeight: FontWeight.w600,
+                    ),
+                    filled: false,
+                    border: InputBorder.none,
+                    enabledBorder: InputBorder.none,
+                    focusedBorder: InputBorder.none,
+                    contentPadding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 16,
+                    ),
                   ),
                 ),
               ),
@@ -197,63 +222,61 @@ class _YouTubeDownloadSheetState extends State<_YouTubeDownloadSheet> {
               // =========================================================
               Text(
                 l10n.format,
-                style: theme.textTheme.labelLarge?.copyWith(
+                style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
 
               const SizedBox(height: 8),
 
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(16),
-                decoration: BoxDecoration(
-                  color: colorScheme.surfaceContainerHighest.withOpacity(0.5),
-                  borderRadius: BorderRadius.circular(14),
-                  border: Border.all(
-                    color: colorScheme.outlineVariant.withOpacity(0.5),
+              Material(
+                color: colorScheme.surfaceContainer,
+                borderRadius: BorderRadius.circular(20),
+                clipBehavior: Clip.antiAlias,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 48,
+                        height: 48,
+                        decoration: BoxDecoration(
+                          color: colorScheme.primaryContainer,
+                          borderRadius: BorderRadius.circular(14),
+                        ),
+                        child: Icon(
+                          Icons.audio_file_rounded,
+                          color: colorScheme.onPrimaryContainer,
+                        ),
+                      ),
+
+                      const SizedBox(width: 12),
+
+                      Expanded(
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'MP3',
+                              style: theme.textTheme.bodyLarge?.copyWith(
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+
+                            const SizedBox(height: 3),
+
+                            Text(
+                              l10n.mp3CompatibleDescription,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: colorScheme.onSurfaceVariant,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-                child: Row(
-                  children: [
-                    Container(
-                      width: 42,
-                      height: 42,
-                      decoration: BoxDecoration(
-                        color: colorScheme.primaryContainer,
-                        borderRadius: BorderRadius.circular(10),
-                      ),
-                      child: Icon(
-                        Icons.audio_file_rounded,
-                        color: colorScheme.primary,
-                      ),
-                    ),
-
-                    const SizedBox(width: 12),
-
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'MP3',
-                            style: theme.textTheme.bodyLarge?.copyWith(
-                              fontWeight: FontWeight.w700,
-                            ),
-                          ),
-
-                          const SizedBox(height: 2),
-
-                          Text(
-                            l10n.mp3CompatibleDescription,
-                            style: theme.textTheme.bodySmall?.copyWith(
-                              color: colorScheme.onSurfaceVariant,
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
                 ),
               ),
 
@@ -264,81 +287,88 @@ class _YouTubeDownloadSheetState extends State<_YouTubeDownloadSheet> {
               // =========================================================
               Text(
                 l10n.afterDownload,
-                style: theme.textTheme.labelLarge?.copyWith(
+                style: theme.textTheme.titleMedium?.copyWith(
                   fontWeight: FontWeight.w700,
                 ),
               ),
 
               const SizedBox(height: 8),
 
-              InkWell(
-                borderRadius: BorderRadius.circular(14),
-                onTap: () {
-                  setState(() {
-                    _addToPlaylist = !_addToPlaylist;
-                  });
-                },
-                child: Container(
-                  width: double.infinity,
-                  padding: const EdgeInsets.all(16),
-                  decoration: BoxDecoration(
-                    color: _addToPlaylist
-                        ? colorScheme.primaryContainer.withOpacity(0.7)
-                        : colorScheme.surfaceContainerHighest.withOpacity(0.5),
-                    borderRadius: BorderRadius.circular(14),
-                    border: Border.all(
-                      color: _addToPlaylist
-                          ? colorScheme.primary
-                          : colorScheme.outlineVariant.withOpacity(0.5),
-                    ),
-                  ),
-                  child: Row(
-                    children: [
-                      Icon(
-                        _addToPlaylist
-                            ? Icons.playlist_add_check_rounded
-                            : Icons.playlist_add_rounded,
-                        color: _addToPlaylist
-                            ? colorScheme.primary
-                            : colorScheme.onSurfaceVariant,
-                      ),
-
-                      const SizedBox(width: 12),
-
-                      Expanded(
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Text(
-                              l10n.addToPlaylist,
-                              style: theme.textTheme.bodyLarge?.copyWith(
-                                fontWeight: FontWeight.w700,
-                              ),
-                            ),
-
-                            const SizedBox(height: 2),
-
-                            Text(
+              Material(
+                color: _addToPlaylist
+                    ? colorScheme.primaryContainer
+                    : colorScheme.surfaceContainer,
+                borderRadius: BorderRadius.circular(20),
+                clipBehavior: Clip.antiAlias,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(20),
+                  onTap: () {
+                    setState(() {
+                      _addToPlaylist = !_addToPlaylist;
+                    });
+                  },
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 48,
+                          height: 48,
+                          child: Center(
+                            child: Icon(
                               _addToPlaylist
-                                  ? l10n.playlistWillBeSelected
-                                  : l10n.optional,
-                              style: theme.textTheme.bodySmall?.copyWith(
-                                color: colorScheme.onSurfaceVariant,
-                              ),
+                                  ? Icons.playlist_add_check_rounded
+                                  : Icons.playlist_add_rounded,
+                              color: _addToPlaylist
+                                  ? colorScheme.onPrimaryContainer
+                                  : colorScheme.onSurfaceVariant,
                             ),
-                          ],
+                          ),
                         ),
-                      ),
 
-                      Checkbox(
-                        value: _addToPlaylist,
-                        onChanged: (value) {
-                          setState(() {
-                            _addToPlaylist = value ?? false;
-                          });
-                        },
-                      ),
-                    ],
+                        const SizedBox(width: 12),
+
+                        Expanded(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                l10n.addToPlaylist,
+                                style: theme.textTheme.bodyLarge?.copyWith(
+                                  fontWeight: FontWeight.w600,
+                                  color: _addToPlaylist
+                                      ? colorScheme.onPrimaryContainer
+                                      : null,
+                                ),
+                              ),
+
+                              const SizedBox(height: 3),
+
+                              Text(
+                                _addToPlaylist
+                                    ? l10n.playlistWillBeSelected
+                                    : l10n.optional,
+                                style: theme.textTheme.bodySmall?.copyWith(
+                                  color: _addToPlaylist
+                                      ? colorScheme.onPrimaryContainer
+                                      : colorScheme.onSurfaceVariant,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+
+                        Checkbox(
+                          value: _addToPlaylist,
+                          onChanged: (value) {
+                            setState(() {
+                              _addToPlaylist = value ?? false;
+                            });
+                          },
+                        ),
+                      ],
+                    ),
                   ),
                 ),
               ),

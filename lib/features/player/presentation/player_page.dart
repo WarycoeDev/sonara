@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
+import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -74,22 +75,25 @@ class PlayerPage extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
-      body: SafeArea(
-        child: Selector<PlayerController, Song?>(
-          selector: (_, controller) => controller.currentSong,
-          builder: (context, song, child) {
-            if (song == null) {
-              return Center(
-                child: Text(
-                  l10n.noSongPlaying,
-                  style: Theme.of(context).textTheme.titleMedium,
-                ),
-              );
-            }
-
-            return _PlayerLayout(song: song);
-          },
-        ),
+      body: Selector<PlayerController, Song?>(
+        selector: (_, controller) => controller.currentSong,
+        builder: (context, song, child) {
+          // El fondo va FUERA del SafeArea para que el degradado
+          // llegue hasta detrás de la barra de estado.
+          return _CoverGradientBackground(
+            song: song,
+            child: SafeArea(
+              child: song == null
+                  ? Center(
+                      child: Text(
+                        l10n.noSongPlaying,
+                        style: Theme.of(context).textTheme.titleMedium,
+                      ),
+                    )
+                  : _PlayerLayout(song: song),
+            ),
+          );
+        },
       ),
     );
   }
@@ -121,6 +125,368 @@ class _PlayerPageRoute extends PageRouteBuilder<void> {
           );
         },
       );
+}
+
+/* ========================================================================= */
+/* COVER GRADIENT BACKGROUND                                                 */
+/* ========================================================================= */
+class _CoverGradientBackground extends StatefulWidget {
+  final Song? song;
+  final Widget child;
+
+  const _CoverGradientBackground({required this.song, required this.child});
+
+  @override
+  State<_CoverGradientBackground> createState() =>
+      _CoverGradientBackgroundState();
+}
+
+class _CoverGradientBackgroundState extends State<_CoverGradientBackground> {
+  static const int _maxCacheEntries = 60;
+  static final Map<String, Color> _seedCache = <String, Color>{};
+
+  Color? _seed;
+  String? _requestedKey;
+
+  @override
+  void initState() {
+    super.initState();
+    _refresh();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CoverGradientBackground oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _refresh();
+  }
+
+  void _refresh() {
+    final song = widget.song;
+
+    if (song == null) {
+      // Al cerrar el player la canción actual pasa a null mientras corre la
+      // animación de salida. Se conserva el último color (_seed) para que el
+      // degradado no salte al color de acento de la app.
+      _requestedKey = null;
+      return;
+    }
+
+    final key =
+        '${song.id}|${song.coverPath ?? ''}|${song.fileLastModified ?? 0}|'
+        '${song.coverBytes?.length ?? 0}';
+
+    if (key == _requestedKey) {
+      return;
+    }
+
+    _requestedKey = key;
+
+    final cached = _seedCache[key];
+
+    if (cached != null) {
+      _seed = cached;
+      return;
+    }
+
+    unawaited(_loadSeed(song, key));
+  }
+
+  Future<void> _loadSeed(Song song, String key) async {
+    Color? seed;
+
+    try {
+      seed = await _CoverColorExtractor.extract(song);
+    } catch (_) {
+      seed = null;
+    }
+
+    // Ignora el resultado si mientras tanto cambió la canción.
+    if (!mounted || key != _requestedKey) {
+      return;
+    }
+
+    if (seed != null) {
+      if (_seedCache.length >= _maxCacheEntries) {
+        _seedCache.remove(_seedCache.keys.first);
+      }
+
+      _seedCache[key] = seed;
+    }
+
+    setState(() {
+      _seed = seed;
+    });
+  }
+
+  /// Convierte el color dominante de la carátula en un tono que se vea bien
+  /// como fondo: oscuro y saturado en modo oscuro, pastel en modo claro.
+  static Color _tint(Color seed, bool isDark) {
+    final hsv = HSVColor.fromColor(seed);
+    final isGrey = hsv.saturation < 0.08;
+
+    if (isDark) {
+      final saturation = isGrey
+          ? hsv.saturation
+          : hsv.saturation.clamp(0.4, 0.8).toDouble();
+
+      return HSVColor.fromAHSV(1, hsv.hue, saturation, 0.38).toColor();
+    }
+
+    final saturation = isGrey
+        ? hsv.saturation
+        : (hsv.saturation * 0.55).clamp(0.14, 0.42).toDouble();
+
+    return HSVColor.fromAHSV(1, hsv.hue, saturation, 0.97).toColor();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final surface = theme.colorScheme.surface;
+    final isDark = theme.brightness == Brightness.dark;
+
+    final target = _seed == null
+        ? theme.colorScheme.primaryContainer
+        : _tint(_seed!, isDark);
+
+    // El degradado vive en su propia capa (RepaintBoundary) y separado del
+    // contenido: al animar el color solo se repinta el fondo, no todo el
+    // reproductor.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned.fill(
+          child: RepaintBoundary(
+            child: TweenAnimationBuilder<Color?>(
+              tween: ColorTween(end: target),
+              duration: const Duration(milliseconds: 450),
+              curve: Curves.easeOutCubic,
+              builder: (context, color, _) {
+                final top = color ?? target;
+                final middle = Color.alphaBlend(top.withOpacity(0.45), surface);
+
+                return DecoratedBox(
+                  decoration: BoxDecoration(
+                    gradient: LinearGradient(
+                      begin: Alignment.topCenter,
+                      end: Alignment.bottomCenter,
+                      colors: [top, middle, surface],
+                      stops: const [0.0, 0.55, 1.0],
+                    ),
+                  ),
+                );
+              },
+            ),
+          ),
+        ),
+        widget.child,
+      ],
+    );
+  }
+}
+
+/// Lee carátulas `content://` de Android una sola vez y las comparte entre
+/// la carátula grande, el degradado y la cola (antes se leía varias veces por
+/// el MethodChannel). Cache LRU pequeña para no gastar memoria.
+class _ArtworkBytesLoader {
+  static const MethodChannel _channel = MethodChannel('sonara/media_store');
+  static const int _maxEntries = 24;
+
+  static final Map<String, Uint8List> _resolved = <String, Uint8List>{};
+  static final Map<String, Future<Uint8List?>> _inFlight =
+      <String, Future<Uint8List?>>{};
+
+  /// Devuelve los bytes si ya están en memoria (sin esperar nada).
+  static Uint8List? peek(String uri) {
+    final bytes = _resolved.remove(uri);
+
+    if (bytes != null) {
+      _resolved[uri] = bytes;
+    }
+
+    return bytes;
+  }
+
+  static Future<Uint8List?> load(String uri) {
+    final cached = peek(uri);
+
+    if (cached != null) {
+      return Future<Uint8List?>.value(cached);
+    }
+
+    return _inFlight.putIfAbsent(uri, () => _read(uri));
+  }
+
+  static Future<Uint8List?> _read(String uri) async {
+    try {
+      final result = await _channel.invokeMethod<dynamic>(
+        'readContentUri',
+        <String, dynamic>{'uri': uri},
+      );
+
+      Uint8List? bytes;
+
+      if (result is Uint8List) {
+        bytes = result;
+      } else if (result is List) {
+        bytes = Uint8List.fromList(result.cast<int>());
+      }
+
+      if (bytes != null && bytes.isNotEmpty) {
+        _resolved[uri] = bytes;
+
+        if (_resolved.length > _maxEntries) {
+          _resolved.remove(_resolved.keys.first);
+        }
+      }
+
+      return bytes;
+    } catch (_) {
+      return null;
+    } finally {
+      _inFlight.remove(uri);
+    }
+  }
+}
+
+/// Saca un color dominante de la carátula de forma barata: decodifica la
+/// imagen a 24x24 (fuera del hilo de UI) y promedia los tonos más vivos.
+/// Reemplaza a ColorScheme.fromImageProvider, que era lo que hacía laguear.
+class _CoverColorExtractor {
+  static const int _sampleSize = 24;
+  static const int _hueBuckets = 12;
+
+  static Future<Color?> extract(Song song) async {
+    final bytes = await _loadBytes(song);
+
+    if (bytes == null || bytes.isEmpty) {
+      return null;
+    }
+
+    ui.Codec? codec;
+    ui.Image? image;
+
+    try {
+      codec = await ui.instantiateImageCodec(
+        bytes,
+        targetWidth: _sampleSize,
+        targetHeight: _sampleSize,
+      );
+
+      final frame = await codec.getNextFrame();
+      image = frame.image;
+
+      final data = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
+
+      if (data == null) {
+        return null;
+      }
+
+      return _dominantColor(data);
+    } catch (_) {
+      return null;
+    } finally {
+      image?.dispose();
+      codec?.dispose();
+    }
+  }
+
+  static Future<Uint8List?> _loadBytes(Song song) async {
+    final bytes = song.coverBytes;
+
+    if (bytes != null && bytes.isNotEmpty) {
+      return bytes;
+    }
+
+    final path = song.coverPath;
+
+    if (path == null || path.isEmpty) {
+      return null;
+    }
+
+    if (path.startsWith('content://')) {
+      return _ArtworkBytesLoader.load(path);
+    }
+
+    try {
+      return await File(path).readAsBytes();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static Color? _dominantColor(ByteData data) {
+    final weights = List<double>.filled(_hueBuckets, 0);
+    final reds = List<double>.filled(_hueBuckets, 0);
+    final greens = List<double>.filled(_hueBuckets, 0);
+    final blues = List<double>.filled(_hueBuckets, 0);
+
+    double totalR = 0;
+    double totalG = 0;
+    double totalB = 0;
+    var count = 0;
+
+    for (var i = 0; i + 3 < data.lengthInBytes; i += 4) {
+      if (data.getUint8(i + 3) < 128) {
+        continue;
+      }
+
+      final r = data.getUint8(i);
+      final g = data.getUint8(i + 1);
+      final b = data.getUint8(i + 2);
+
+      totalR += r;
+      totalG += g;
+      totalB += b;
+      count++;
+
+      final hsv = HSVColor.fromColor(Color.fromARGB(255, r, g, b));
+
+      // Ignora grises y casi negros: no aportan "color".
+      if (hsv.saturation < 0.2 || hsv.value < 0.2) {
+        continue;
+      }
+
+      final bucket = math.min(_hueBuckets - 1, hsv.hue ~/ (360 / _hueBuckets));
+      final weight = hsv.saturation * hsv.value;
+
+      weights[bucket] += weight;
+      reds[bucket] += r * weight;
+      greens[bucket] += g * weight;
+      blues[bucket] += b * weight;
+    }
+
+    if (count == 0) {
+      return null;
+    }
+
+    var best = 0;
+
+    for (var i = 1; i < _hueBuckets; i++) {
+      if (weights[i] > weights[best]) {
+        best = i;
+      }
+    }
+
+    // Carátula casi en escala de grises: usa el promedio general.
+    if (weights[best] < count * 0.03) {
+      return Color.fromARGB(
+        255,
+        (totalR / count).round(),
+        (totalG / count).round(),
+        (totalB / count).round(),
+      );
+    }
+
+    final w = weights[best];
+
+    return Color.fromARGB(
+      255,
+      (reds[best] / w).round(),
+      (greens[best] / w).round(),
+      (blues[best] / w).round(),
+    );
+  }
 }
 
 /* ========================================================================= */
@@ -262,7 +628,6 @@ class _PlayerHeader extends StatelessWidget {
 /* ========================================================================= */
 /* ARTWORK                                                                   */
 /* ========================================================================= */
-
 class _HeroArtwork extends StatelessWidget {
   final Song song;
   final bool compact;
@@ -271,15 +636,21 @@ class _HeroArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final devicePixelRatio = MediaQuery.devicePixelRatioOf(context);
+
     return LayoutBuilder(
       builder: (context, constraints) {
         final availableWidth = constraints.maxWidth;
 
         final artworkSize = math.min(availableWidth, compact ? 270.0 : 360.0);
 
+        // Decodifica la imagen al tamaño real en pantalla y no a su
+        // resolución original: es lo que más pesa al cambiar de canción.
+        final cacheSize = math.max(1, (artworkSize * devicePixelRatio).round());
+
         return RepaintBoundary(
           child: AnimatedSwitcher(
-            duration: const Duration(milliseconds: 400),
+            duration: const Duration(milliseconds: 260),
             switchInCurve: Curves.easeOutCubic,
             switchOutCurve: Curves.easeInCubic,
             transitionBuilder: (child, animation) {
@@ -302,6 +673,7 @@ class _HeroArtwork extends StatelessWidget {
               child: _AlbumArtwork(
                 coverPath: song.coverPath,
                 coverBytes: song.coverBytes,
+                cacheSize: cacheSize,
               ),
             ),
           ),
@@ -314,8 +686,13 @@ class _HeroArtwork extends StatelessWidget {
 class _AlbumArtwork extends StatelessWidget {
   final String? coverPath;
   final Uint8List? coverBytes;
+  final int cacheSize;
 
-  const _AlbumArtwork({required this.coverPath, required this.coverBytes});
+  const _AlbumArtwork({
+    required this.coverPath,
+    required this.coverBytes,
+    required this.cacheSize,
+  });
 
   Future<void> _showArtworkMenu(BuildContext context) async {
     final controller = context.read<PlayerController>();
@@ -362,7 +739,7 @@ class _AlbumArtwork extends StatelessWidget {
     final bytes = coverBytes;
 
     if (bytes != null && bytes.isNotEmpty) {
-      return _MemoryArtwork(bytes: bytes);
+      return _MemoryArtwork(bytes: bytes, cacheSize: cacheSize);
     }
 
     final path = coverPath;
@@ -372,17 +749,18 @@ class _AlbumArtwork extends StatelessWidget {
     }
 
     if (path.startsWith('content://')) {
-      return _AndroidAlbumArtwork(contentUri: path);
+      return _AndroidAlbumArtwork(contentUri: path, cacheSize: cacheSize);
     }
 
-    return _FileArtwork(path: path);
+    return _FileArtwork(path: path, cacheSize: cacheSize);
   }
 }
 
 class _MemoryArtwork extends StatelessWidget {
   final Uint8List bytes;
+  final int cacheSize;
 
-  const _MemoryArtwork({required this.bytes});
+  const _MemoryArtwork({required this.bytes, required this.cacheSize});
 
   @override
   Widget build(BuildContext context) {
@@ -395,7 +773,8 @@ class _MemoryArtwork extends StatelessWidget {
           width: double.infinity,
           height: double.infinity,
           fit: BoxFit.cover,
-          filterQuality: FilterQuality.high,
+          cacheWidth: cacheSize,
+          filterQuality: FilterQuality.medium,
           gaplessPlayback: true,
           errorBuilder: (_, __, ___) {
             return const _DefaultArtwork();
@@ -408,27 +787,25 @@ class _MemoryArtwork extends StatelessWidget {
 
 class _FileArtwork extends StatelessWidget {
   final String path;
+  final int cacheSize;
 
-  const _FileArtwork({required this.path});
+  const _FileArtwork({required this.path, required this.cacheSize});
 
   @override
   Widget build(BuildContext context) {
-    final file = File(path);
-
-    if (!file.existsSync()) {
-      return const _DefaultArtwork();
-    }
-
+    // Sin existsSync(): era IO síncrono en el hilo de UI. Si el archivo no
+    // existe, errorBuilder ya muestra la carátula por defecto.
     return ClipRRect(
       borderRadius: BorderRadius.circular(24),
       child: ColoredBox(
         color: Theme.of(context).colorScheme.surfaceContainerHighest,
         child: Image.file(
-          file,
+          File(path),
           width: double.infinity,
           height: double.infinity,
           fit: BoxFit.cover,
-          filterQuality: FilterQuality.high,
+          cacheWidth: cacheSize,
+          filterQuality: FilterQuality.medium,
           gaplessPlayback: true,
           errorBuilder: (_, __, ___) {
             return const _DefaultArtwork();
@@ -463,26 +840,27 @@ class _DefaultArtwork extends StatelessWidget {
 /* ========================================================================= */
 /* ANDROID ARTWORK                                                           */
 /* ========================================================================= */
-
 class _AndroidAlbumArtwork extends StatefulWidget {
   final String contentUri;
+  final int cacheSize;
 
-  const _AndroidAlbumArtwork({required this.contentUri});
+  const _AndroidAlbumArtwork({
+    required this.contentUri,
+    required this.cacheSize,
+  });
 
   @override
   State<_AndroidAlbumArtwork> createState() => _AndroidAlbumArtworkState();
 }
 
 class _AndroidAlbumArtworkState extends State<_AndroidAlbumArtwork> {
-  static const MethodChannel _channel = MethodChannel('sonara/media_store');
-
   Uint8List? _bytes;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadArtwork();
+    _resolve();
   }
 
   @override
@@ -490,51 +868,38 @@ class _AndroidAlbumArtworkState extends State<_AndroidAlbumArtwork> {
     super.didUpdateWidget(oldWidget);
 
     if (oldWidget.contentUri != widget.contentUri) {
-      _bytes = null;
-      _loading = true;
-      _loadArtwork();
+      _resolve();
     }
   }
 
-  Future<void> _loadArtwork() async {
-    try {
-      final result = await _channel.invokeMethod<dynamic>(
-        'readContentUri',
-        <String, dynamic>{'uri': widget.contentUri},
-      );
+  void _resolve() {
+    final uri = widget.contentUri;
+    final cached = _ArtworkBytesLoader.peek(uri);
 
-      if (!mounted) {
-        return;
-      }
-
-      if (result is Uint8List) {
-        setState(() {
-          _bytes = result;
-          _loading = false;
-        });
-        return;
-      }
-
-      if (result is List) {
-        setState(() {
-          _bytes = Uint8List.fromList(result.cast<int>());
-          _loading = false;
-        });
-        return;
-      }
-
-      setState(() {
-        _loading = false;
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _loading = false;
-      });
+    // Si ya está en memoria se muestra en el mismo frame, sin parpadeo.
+    if (cached != null) {
+      _bytes = cached;
+      _loading = false;
+      return;
     }
+
+    _bytes = null;
+    _loading = true;
+
+    unawaited(_load(uri));
+  }
+
+  Future<void> _load(String uri) async {
+    final bytes = await _ArtworkBytesLoader.load(uri);
+
+    if (!mounted || uri != widget.contentUri) {
+      return;
+    }
+
+    setState(() {
+      _bytes = bytes;
+      _loading = false;
+    });
   }
 
   @override
@@ -562,7 +927,8 @@ class _AndroidAlbumArtworkState extends State<_AndroidAlbumArtwork> {
           width: double.infinity,
           height: double.infinity,
           fit: BoxFit.cover,
-          filterQuality: FilterQuality.high,
+          cacheWidth: widget.cacheSize,
+          filterQuality: FilterQuality.medium,
           gaplessPlayback: true,
           errorBuilder: (_, __, ___) {
             return const _DefaultArtwork();
@@ -824,7 +1190,10 @@ class _ScrollingSongTitleState extends State<_ScrollingSongTitle> {
 
     painter.layout();
 
-    return painter.width;
+    final width = painter.width;
+    painter.dispose();
+
+    return width;
   }
 
   void _configure(double distance) {
@@ -1116,8 +1485,6 @@ class _SecondaryControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-
     return Selector<
       PlayerController,
       ({bool shuffle, SonaraRepeatMode repeatMode, bool isFavorite})
@@ -1137,14 +1504,14 @@ class _SecondaryControls extends StatelessWidget {
               icon: state.isFavorite
                   ? Icons.favorite_rounded
                   : Icons.favorite_border_rounded,
-              label: "",
+              label: '',
               isActive: state.isFavorite,
               onPressed: controller.toggleFavorite,
             ),
 
             _PlayerOptionButton(
               icon: _repeatIcon(state.repeatMode),
-              label: "",
+              label: '',
               isActive: state.repeatMode != SonaraRepeatMode.off,
               onPressed: () {
                 _showRepeatModes(context);
@@ -1153,7 +1520,7 @@ class _SecondaryControls extends StatelessWidget {
 
             _PlayerOptionButton(
               icon: Icons.queue_music_rounded,
-              label: "",
+              label: '',
               onPressed: () {
                 _showQueue(context);
               },
@@ -1172,19 +1539,6 @@ class _SecondaryControls extends StatelessWidget {
 
       case SonaraRepeatMode.one:
         return Icons.repeat_one_rounded;
-    }
-  }
-
-  static String _repeatLabel(BuildContext context, SonaraRepeatMode mode) {
-    final l10n = AppLocalizations.of(context)!;
-
-    switch (mode) {
-      case SonaraRepeatMode.off:
-        return l10n.repeatOff;
-      case SonaraRepeatMode.one:
-        return l10n.repeatSong;
-      case SonaraRepeatMode.all:
-        return l10n.repeatQueue;
     }
   }
 
@@ -1491,8 +1845,10 @@ class _QueueItem extends StatelessWidget {
         DismissDirection.startToEnd: 0.35,
         DismissDirection.endToStart: 0.35,
       },
-      background: _QueueDismissBackground(alignment: Alignment.centerLeft),
-      secondaryBackground: _QueueDismissBackground(
+      background: const _QueueDismissBackground(
+        alignment: Alignment.centerLeft,
+      ),
+      secondaryBackground: const _QueueDismissBackground(
         alignment: Alignment.centerRight,
       ),
       onDismissed: (_) {
@@ -1558,9 +1914,6 @@ class _QueueItem extends StatelessWidget {
                     ],
                   ),
                 ),
-
-                if (isCurrent)
-                  Padding(padding: const EdgeInsets.symmetric(horizontal: 8)),
 
                 ReorderableDragStartListener(
                   index: index,
@@ -1653,16 +2006,10 @@ class _QueueArtwork extends StatelessWidget {
       );
     }
 
-    final file = File(path);
-
-    if (!file.existsSync()) {
-      return _fallback(context);
-    }
-
     return _buildImage(
       context,
       Image.file(
-        file,
+        File(path),
         width: size,
         height: size,
         fit: BoxFit.cover,
@@ -1732,15 +2079,13 @@ class _AndroidQueueArtwork extends StatefulWidget {
 }
 
 class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
-  static const MethodChannel _channel = MethodChannel('sonara/media_store');
-
   Uint8List? _bytes;
   bool _loading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadArtwork();
+    _resolve();
   }
 
   @override
@@ -1748,51 +2093,37 @@ class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
     super.didUpdateWidget(oldWidget);
 
     if (oldWidget.contentUri != widget.contentUri) {
-      _bytes = null;
-      _loading = true;
-      _loadArtwork();
+      _resolve();
     }
   }
 
-  Future<void> _loadArtwork() async {
-    try {
-      final result = await _channel.invokeMethod<dynamic>(
-        'readContentUri',
-        <String, dynamic>{'uri': widget.contentUri},
-      );
+  void _resolve() {
+    final uri = widget.contentUri;
+    final cached = _ArtworkBytesLoader.peek(uri);
 
-      if (!mounted) {
-        return;
-      }
-
-      if (result is Uint8List) {
-        setState(() {
-          _bytes = result;
-          _loading = false;
-        });
-        return;
-      }
-
-      if (result is List) {
-        setState(() {
-          _bytes = Uint8List.fromList(result.cast<int>());
-          _loading = false;
-        });
-        return;
-      }
-
-      setState(() {
-        _loading = false;
-      });
-    } catch (_) {
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {
-        _loading = false;
-      });
+    if (cached != null) {
+      _bytes = cached;
+      _loading = false;
+      return;
     }
+
+    _bytes = null;
+    _loading = true;
+
+    unawaited(_load(uri));
+  }
+
+  Future<void> _load(String uri) async {
+    final bytes = await _ArtworkBytesLoader.load(uri);
+
+    if (!mounted || uri != widget.contentUri) {
+      return;
+    }
+
+    setState(() {
+      _bytes = bytes;
+      _loading = false;
+    });
   }
 
   @override

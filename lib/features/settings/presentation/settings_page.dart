@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -29,10 +30,8 @@ class _SettingsPageState extends State<SettingsPage> {
     switch (_themeMode) {
       case ThemeMode.light:
         return l10n.light;
-
       case ThemeMode.dark:
         return l10n.dark;
-
       case ThemeMode.system:
         return l10n.system;
     }
@@ -49,10 +48,8 @@ class _SettingsPageState extends State<SettingsPage> {
     switch (locale.languageCode) {
       case 'es':
         return 'Español';
-
       case 'en':
         return 'English';
-
       default:
         return l10n.system;
     }
@@ -64,25 +61,18 @@ class _SettingsPageState extends State<SettingsPage> {
     switch (colorTheme) {
       case 'sonara':
         return l10n.colorSonara;
-
       case 'violeta':
         return l10n.colorVioleta;
-
       case 'esmeralda':
         return l10n.colorEsmeralda;
-
       case 'naranja':
         return l10n.colorNaranja;
-
       case 'rojo':
         return l10n.colorRojo;
-
       case 'rosa':
         return l10n.colorRosa;
-
       case 'cian':
         return l10n.colorCian;
-
       default:
         return colorTheme;
     }
@@ -228,11 +218,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   shrinkWrap: true,
                   children: AppTheme.colorThemes.entries.map((entry) {
                     final colorTheme = entry.key;
-
                     final color = entry.value;
-
                     final name = _getColorThemeName(context, colorTheme);
-
                     final selected = colorTheme == currentColorTheme;
 
                     return ListTile(
@@ -402,8 +389,6 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  // REPLAYGAIN PREAMP
-
   void _showReplayGainPreampDialog() {
     showDialog(
       context: context,
@@ -422,15 +407,12 @@ class _SettingsPageState extends State<SettingsPage> {
                   mainAxisSize: MainAxisSize.min,
                   children: [
                     const SizedBox(height: 8),
-
                     Text(
                       '${currentPreamp >= 0 ? '+' : ''}'
                       '${currentPreamp.toStringAsFixed(1)} dB',
                       style: Theme.of(context).textTheme.titleMedium,
                     ),
-
                     const SizedBox(height: 12),
-
                     Slider(
                       value: currentPreamp,
                       min: -24,
@@ -454,14 +436,11 @@ class _SettingsPageState extends State<SettingsPage> {
                         );
                       },
                     ),
-
                     const SizedBox(height: 4),
-
                     const Row(
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [Text('-24 dB'), Text('0 dB'), Text('+24 dB')],
                     ),
-
                     const SizedBox(height: 8),
                   ],
                 ),
@@ -521,144 +500,280 @@ class _SettingsPageState extends State<SettingsPage> {
     final l10n = AppLocalizations.of(context)!;
 
     return Scaffold(
-      body: ListView(
-        children: [
-          const SizedBox(height: 12),
-
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Text(
-              l10n.appearance,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-            ),
-          ),
-
-          ValueListenableBuilder<ThemeMode>(
-            valueListenable: SonaraApp.themeModeNotifier,
-            builder: (context, themeMode, child) {
-              return ListTile(
-                leading: const Icon(Icons.brightness_6_outlined),
-                title: Text(l10n.appearanceMode),
-                subtitle: Text(_themeName),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: _showThemeDialog,
-              );
-            },
-          ),
-
-          ValueListenableBuilder<String>(
-            valueListenable: SonaraApp.colorThemeNotifier,
-            builder: (context, colorTheme, child) {
-              return ListTile(
-                leading: const Icon(Icons.color_lens_outlined),
-                title: Text(l10n.accentColor),
-                subtitle: Text(_getColorThemeName(context, colorTheme)),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: _showColorThemeDialog,
-              );
-            },
-          ),
-
-          const Divider(),
-
-          Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-            child: Text(
-              l10n.playback,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
-            ),
-          ),
-
-          ValueListenableBuilder<int>(
-            valueListenable: CrossfadeService.instance.secondsNotifier,
-            builder: (context, seconds, child) {
-              return ListTile(
-                leading: const Icon(Icons.multitrack_audio_outlined),
-                title: Text(l10n.crossfade),
-                subtitle: Text(
-                  seconds == 0 ? l10n.disabled : l10n.seconds(seconds),
+      body: ScrollConfiguration(
+        behavior: const _SettingsScrollBehavior(),
+        child: ListView(
+          padding: const EdgeInsets.all(16),
+          children: [
+            _SettingsSection(
+              title: l10n.appearance,
+              children: [
+                ValueListenableBuilder<ThemeMode>(
+                  valueListenable: SonaraApp.themeModeNotifier,
+                  builder: (context, themeMode, child) {
+                    return _SettingsTile(
+                      icon: Icons.brightness_6_outlined,
+                      title: l10n.appearanceMode,
+                      subtitle: _themeName,
+                      onTap: _showThemeDialog,
+                    );
+                  },
                 ),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: _showCrossfadeDialog,
-              );
-            },
-          ),
+                ValueListenableBuilder<String>(
+                  valueListenable: SonaraApp.colorThemeNotifier,
+                  builder: (context, colorTheme, child) {
+                    return _SettingsTile(
+                      icon: Icons.color_lens_outlined,
+                      title: l10n.accentColor,
+                      subtitle: _getColorThemeName(context, colorTheme),
+                      onTap: _showColorThemeDialog,
+                    );
+                  },
+                ),
+              ],
+            ),
 
-          ValueListenableBuilder<double>(
-            valueListenable:
-                AudioPlayerService.instance.replayGainPreampNotifier,
-            builder: (context, preamp, child) {
-              final text =
-                  '${preamp >= 0 ? '+' : ''}'
-                  '${preamp.toStringAsFixed(1)} dB';
+            const SizedBox(height: 16),
 
-              return ListTile(
-                leading: const Icon(Icons.equalizer_outlined),
-                title: const Text('ReplayGain Preamp'),
-                subtitle: Text(text),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: _showReplayGainPreampDialog,
-              );
-            },
-          ),
+            _SettingsSection(
+              title: l10n.playback,
+              children: [
+                ValueListenableBuilder<int>(
+                  valueListenable: CrossfadeService.instance.secondsNotifier,
+                  builder: (context, seconds, child) {
+                    return _SettingsTile(
+                      icon: Icons.multitrack_audio_outlined,
+                      title: l10n.crossfade,
+                      subtitle: seconds == 0
+                          ? l10n.disabled
+                          : l10n.seconds(seconds),
+                      onTap: _showCrossfadeDialog,
+                    );
+                  },
+                ),
+                ValueListenableBuilder<double>(
+                  valueListenable:
+                      AudioPlayerService.instance.replayGainPreampNotifier,
+                  builder: (context, preamp, child) {
+                    final text =
+                        '${preamp >= 0 ? '+' : ''}'
+                        '${preamp.toStringAsFixed(1)} dB';
 
-          const Divider(),
+                    return _SettingsTile(
+                      icon: Icons.equalizer_outlined,
+                      title: 'ReplayGain Preamp',
+                      subtitle: text,
+                      onTap: _showReplayGainPreampDialog,
+                    );
+                  },
+                ),
+              ],
+            ),
 
+            const SizedBox(height: 16),
+
+            _SettingsSection(
+              title: l10n.application,
+              children: [
+                ValueListenableBuilder<Locale?>(
+                  valueListenable: SonaraApp.localeNotifier,
+                  builder: (context, locale, child) {
+                    return _SettingsTile(
+                      icon: Icons.language_outlined,
+                      title: l10n.language,
+                      subtitle: _languageName,
+                      onTap: _showLanguageDialog,
+                    );
+                  },
+                ),
+                _SettingsTile(
+                  icon: Icons.info_outline,
+                  title: l10n.about,
+                  subtitle: l10n.aboutSonara,
+                  trailing: Icons.chevron_right_rounded,
+                  onTap: _showAboutDialog,
+                ),
+                _SettingsTile(
+                  icon: Icons.code_outlined,
+                  title: l10n.sourceCode,
+                  subtitle: l10n.viewSonaraSource,
+                  trailing: Icons.open_in_new_rounded,
+                  onTap: _openSourceCode,
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 32),
+
+            Center(
+              child: Text(
+                'Sonara',
+                style: TextStyle(
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 4),
+
+            Center(
+              child: Text(
+                l10n.version('1.9.4'),
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Theme.of(context).colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ),
+
+            const SizedBox(height: 24),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsSection extends StatelessWidget {
+  final String title;
+  final List<Widget> children;
+
+  const _SettingsSection({required this.title, required this.children});
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Container(
+      decoration: BoxDecoration(
+        color: colorScheme.surface,
+        borderRadius: BorderRadius.circular(20),
+      ),
+      padding: const EdgeInsets.fromLTRB(16, 14, 16, 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
           Padding(
-            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+            padding: const EdgeInsets.symmetric(horizontal: 2),
             child: Text(
-              l10n.application,
-              style: const TextStyle(fontSize: 14, fontWeight: FontWeight.bold),
+              title,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w700),
             ),
           ),
-
-          ValueListenableBuilder<Locale?>(
-            valueListenable: SonaraApp.localeNotifier,
-            builder: (context, locale, child) {
-              return ListTile(
-                leading: const Icon(Icons.language_outlined),
-                title: Text(l10n.language),
-                subtitle: Text(_languageName),
-                trailing: const Icon(Icons.chevron_right),
-                onTap: _showLanguageDialog,
-              );
-            },
-          ),
-
-          ListTile(
-            leading: const Icon(Icons.info_outline),
-            title: Text(l10n.about),
-            subtitle: Text(l10n.aboutSonara),
-            trailing: const Icon(Icons.chevron_right),
-            onTap: _showAboutDialog,
-          ),
-
-          ListTile(
-            leading: const Icon(Icons.code_outlined),
-            title: Text(l10n.sourceCode),
-            subtitle: Text(l10n.viewSonaraSource),
-            trailing: const Icon(Icons.open_in_new),
-            onTap: _openSourceCode,
-          ),
-
-          const SizedBox(height: 32),
-
-          Center(
-            child: Text('Sonara', style: Theme.of(context).textTheme.bodySmall),
-          ),
-
-          const SizedBox(height: 4),
-
-          Center(
-            child: Text(
-              l10n.version('1.9.4'),
-              style: Theme.of(context).textTheme.bodySmall,
-            ),
-          ),
-
-          const SizedBox(height: 24),
+          const SizedBox(height: 12),
+          ..._withSpacing(children),
         ],
       ),
     );
   }
+
+  List<Widget> _withSpacing(List<Widget> children) {
+    final result = <Widget>[];
+
+    for (var i = 0; i < children.length; i++) {
+      result.add(children[i]);
+
+      if (i < children.length - 1) {
+        result.add(const SizedBox(height: 8));
+      }
+    }
+
+    return result;
+  }
+}
+
+class _SettingsTile extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final IconData? trailing;
+  final VoidCallback onTap;
+
+  const _SettingsTile({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.trailing = Icons.chevron_right_rounded,
+    required this.onTap,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    final colorScheme = Theme.of(context).colorScheme;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(14),
+        onTap: onTap,
+        child: Ink(
+          decoration: BoxDecoration(
+            color: colorScheme.surfaceContainerLow,
+            borderRadius: BorderRadius.circular(14),
+          ),
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+          child: Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: colorScheme.primaryContainer,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: Icon(
+                  icon,
+                  size: 21,
+                  color: colorScheme.onPrimaryContainer,
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
+                    const SizedBox(height: 3),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              Icon(trailing, size: 21, color: colorScheme.onSurfaceVariant),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SettingsScrollBehavior extends MaterialScrollBehavior {
+  const _SettingsScrollBehavior();
+
+  @override
+  Set<PointerDeviceKind> get dragDevices => {
+    PointerDeviceKind.touch,
+    PointerDeviceKind.mouse,
+    PointerDeviceKind.trackpad,
+    PointerDeviceKind.stylus,
+  };
 }

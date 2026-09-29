@@ -358,7 +358,7 @@ class _SearchPageState extends State<SearchPage> {
                                 ? dialogL10n.downloadFailed
                                 : dialogL10n.downloadingAudio,
                             style: theme.textTheme.titleMedium?.copyWith(
-                              fontWeight: FontWeight.w800,
+                              fontWeight: FontWeight.w700,
                             ),
                             textAlign: TextAlign.center,
                           ),
@@ -555,16 +555,18 @@ class _SearchPageState extends State<SearchPage> {
       behavior: HitTestBehavior.translucent,
       onTap: _dismissKeyboard,
       child: Scaffold(
+        backgroundColor: theme.scaffoldBackgroundColor,
         body: SafeArea(
           child: CustomScrollView(
+            cacheExtent: 500,
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             slivers: [
               // ===============================================================
               // DESCRIPCIÓN
               // ===============================================================
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(24, 8, 24, 20),
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
+                sliver: SliverToBoxAdapter(
                   child: Text(
                     l10n.searchDescription,
                     style: theme.textTheme.bodyMedium?.copyWith(
@@ -574,12 +576,14 @@ class _SearchPageState extends State<SearchPage> {
                 ),
               ),
 
+              const SliverToBoxAdapter(child: SizedBox(height: 16)),
+
               // ===============================================================
               // BARRA DE BÚSQUEDA
               // ===============================================================
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
+              SliverPadding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                sliver: SliverToBoxAdapter(
                   child: _SearchField(
                     controller: _searchController,
                     focusNode: _searchFocusNode,
@@ -592,9 +596,9 @@ class _SearchPageState extends State<SearchPage> {
               // BOTÓN YOUTUBE
               // ===============================================================
               if (Platform.isAndroid)
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 10, 24, 0),
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                  sliver: SliverToBoxAdapter(
                     child: ValueListenableBuilder<_SearchState>(
                       valueListenable: _searchState,
                       builder: (context, state, _) {
@@ -631,7 +635,7 @@ class _SearchPageState extends State<SearchPage> {
                 },
               ),
 
-              const SliverToBoxAdapter(child: SizedBox(height: 40)),
+              const SliverToBoxAdapter(child: SizedBox(height: 32)),
             ],
           ),
         ),
@@ -769,12 +773,10 @@ class _SearchField extends StatelessWidget {
     final colorScheme = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
 
-    return Container(
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest.withOpacity(0.65),
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: colorScheme.outlineVariant.withOpacity(0.5)),
-      ),
+    return Material(
+      color: colorScheme.surfaceContainer,
+      borderRadius: BorderRadius.circular(20),
+      clipBehavior: Clip.antiAlias,
       child: ValueListenableBuilder<_SearchState>(
         valueListenable: searchState,
         builder: (context, state, _) {
@@ -788,12 +790,10 @@ class _SearchField extends StatelessWidget {
             style: const TextStyle(fontWeight: FontWeight.w500),
             decoration: InputDecoration(
               hintText: l10n.searchFieldHint,
-              hintStyle: TextStyle(
-                color: colorScheme.onSurfaceVariant.withOpacity(0.75),
-              ),
+              hintStyle: TextStyle(color: colorScheme.onSurfaceVariant),
               prefixIcon: Icon(
                 Icons.search_rounded,
-                color: colorScheme.primary,
+                color: colorScheme.onSurfaceVariant,
               ),
               suffixIcon: state.hasQuery
                   ? IconButton(
@@ -805,10 +805,13 @@ class _SearchField extends StatelessWidget {
                       tooltip: l10n.clearSearch,
                     )
                   : null,
+              filled: false,
               border: InputBorder.none,
+              enabledBorder: InputBorder.none,
+              focusedBorder: InputBorder.none,
               contentPadding: const EdgeInsets.symmetric(
                 horizontal: 16,
-                vertical: 17,
+                vertical: 16,
               ),
             ),
           );
@@ -839,46 +842,42 @@ class _SearchActions extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
-    final theme = Theme.of(context);
-    final colorScheme = theme.colorScheme;
+    final colorScheme = Theme.of(context).colorScheme;
     final l10n = AppLocalizations.of(context)!;
 
     return Align(
       alignment: Alignment.centerLeft,
       child: Material(
-        color: Colors.transparent,
+        color: colorScheme.primaryContainer,
+        borderRadius: BorderRadius.circular(18),
+        clipBehavior: Clip.antiAlias,
         child: InkWell(
           onTap: isSearching ? null : onSearchYouTube,
-          borderRadius: BorderRadius.circular(999),
-          child: Ink(
-            padding: const EdgeInsets.symmetric(horizontal: 13, vertical: 7),
-            decoration: BoxDecoration(
-              color: colorScheme.primaryContainer.withOpacity(0.7),
-              borderRadius: BorderRadius.circular(999),
-              border: Border.all(color: colorScheme.primary.withOpacity(0.35)),
-            ),
+          borderRadius: BorderRadius.circular(18),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
                 if (isSearching)
                   SizedBox(
-                    width: 16,
-                    height: 16,
+                    width: 19,
+                    height: 19,
                     child: CircularProgressIndicator(
                       strokeWidth: 2,
-                      color: colorScheme.primary,
+                      color: colorScheme.onPrimaryContainer,
                     ),
                   )
                 else
                   Icon(
                     Icons.play_circle_fill_rounded,
-                    size: 17,
-                    color: colorScheme.primary,
+                    size: 19,
+                    color: colorScheme.onPrimaryContainer,
                   ),
                 const SizedBox(width: 7),
                 Text(
                   isSearching ? l10n.searchingYouTube : l10n.searchAlsoYouTube,
-                  style: theme.textTheme.labelMedium?.copyWith(
+                  style: TextStyle(
                     fontWeight: FontWeight.w700,
                     color: colorScheme.onPrimaryContainer,
                   ),
@@ -887,8 +886,8 @@ class _SearchActions extends StatelessWidget {
                   const SizedBox(width: 5),
                   Icon(
                     Icons.arrow_forward_rounded,
-                    size: 15,
-                    color: colorScheme.primary,
+                    size: 17,
+                    color: colorScheme.onPrimaryContainer,
                   ),
                 ],
               ],
@@ -927,222 +926,211 @@ class _SearchResultsSliver extends StatelessWidget {
     final hasLocalResults = state.results.isNotEmpty;
     final hasYouTubeResults = state.youtubeResults.isNotEmpty;
 
-    return SliverMainAxisGroup(
-      slivers: [
-        if (state.isSearching && !hasLocalResults)
-          const SliverToBoxAdapter(
-            child: Padding(
-              padding: EdgeInsets.symmetric(vertical: 56),
-              child: Center(child: CircularProgressIndicator()),
-            ),
-          ),
-
-        if (hasLocalResults) ...[
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 0, 24, 12),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      l10n.localResults(state.results.length),
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
-                  ),
-                  if (state.isSearching)
-                    SizedBox(
-                      width: 16,
-                      height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: colorScheme.primary,
-                      ),
-                    ),
-                ],
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      sliver: SliverMainAxisGroup(
+        slivers: [
+          if (state.isSearching && !hasLocalResults)
+            const SliverToBoxAdapter(
+              child: Padding(
+                padding: EdgeInsets.symmetric(vertical: 56),
+                child: Center(child: CircularProgressIndicator()),
               ),
             ),
-          ),
 
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            sliver: SliverList.separated(
+          if (hasLocalResults) ...[
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(bottom: 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        l10n.localResults(state.results.length),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    if (state.isSearching)
+                      SizedBox(
+                        width: 16,
+                        height: 16,
+                        child: CircularProgressIndicator(
+                          strokeWidth: 2,
+                          color: colorScheme.primary,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+
+            SliverList.builder(
               itemCount: state.results.length,
+              addAutomaticKeepAlives: false,
+              addRepaintBoundaries: true,
               itemBuilder: (context, index) {
                 final song = state.results[index];
 
-                return RepaintBoundary(
-                  child: _SearchSongListTile(
-                    key: ValueKey(song.id),
-                    song: song,
-                  ),
-                );
-              },
-              separatorBuilder: (_, __) {
-                return Divider(
-                  height: 1,
-                  indent: 70,
-                  color: colorScheme.outlineVariant.withOpacity(0.45),
-                );
+                return _SearchSongListTile(key: ValueKey(song.id), song: song);
               },
             ),
-          ),
-        ],
+          ],
 
-        if (!state.isSearching &&
-            !hasLocalResults &&
-            !state.hasSearchedYouTube &&
-            !state.isYouTubeSearching)
-          _EmptyResultsSliver(query: state.query),
+          if (!state.isSearching &&
+              !hasLocalResults &&
+              !state.hasSearchedYouTube &&
+              !state.isYouTubeSearching)
+            _EmptyResultsSliver(query: state.query),
 
-        if (state.isYouTubeSearching)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(vertical: 32),
-              child: Column(
-                children: [
-                  SizedBox(
-                    width: 28,
-                    height: 28,
-                    child: CircularProgressIndicator(
-                      strokeWidth: 3,
-                      color: colorScheme.primary,
-                    ),
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    l10n.searchingYouTube,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-        if (state.hasSearchedYouTube &&
-            !state.isYouTubeSearching &&
-            hasYouTubeResults)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 32, 24, 12),
-              child: Row(
-                children: [
-                  Icon(
-                    Icons.play_circle_fill_rounded,
-                    color: colorScheme.primary,
-                    size: 24,
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: Text(
-                      l10n.youtubeResults(state.youtubeResults.length),
-                      style: theme.textTheme.titleMedium?.copyWith(
-                        fontWeight: FontWeight.w800,
+          if (state.isYouTubeSearching)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 32),
+                child: Column(
+                  children: [
+                    SizedBox(
+                      width: 28,
+                      height: 28,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 3,
+                        color: colorScheme.primary,
                       ),
                     ),
-                  ),
-                ],
+                    const SizedBox(height: 12),
+                    Text(
+                      l10n.searchingYouTube,
+                      style: theme.textTheme.bodyMedium?.copyWith(
+                        color: colorScheme.onSurfaceVariant,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
-          ),
 
-        if (state.hasSearchedYouTube &&
-            !state.isYouTubeSearching &&
-            hasYouTubeResults)
-          SliverPadding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            sliver: SliverList.separated(
+          if (state.hasSearchedYouTube &&
+              !state.isYouTubeSearching &&
+              hasYouTubeResults)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 28, 0, 8),
+                child: Row(
+                  children: [
+                    Icon(
+                      Icons.play_circle_fill_rounded,
+                      color: colorScheme.primary,
+                      size: 24,
+                    ),
+                    const SizedBox(width: 8),
+                    Expanded(
+                      child: Text(
+                        l10n.youtubeResults(state.youtubeResults.length),
+                        style: theme.textTheme.titleMedium?.copyWith(
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+
+          if (state.hasSearchedYouTube &&
+              !state.isYouTubeSearching &&
+              hasYouTubeResults)
+            SliverList.builder(
               itemCount: state.youtubeResults.length,
+              addAutomaticKeepAlives: false,
+              addRepaintBoundaries: true,
               itemBuilder: (context, index) {
                 final result = state.youtubeResults[index];
 
-                return RepaintBoundary(
-                  child: _YouTubeSearchListTile(
-                    key: ValueKey(result.id),
-                    result: result,
-                    onDownload: onDownloadYouTube,
-                  ),
-                );
-              },
-              separatorBuilder: (_, __) {
-                return Divider(
-                  height: 1,
-                  indent: 118,
-                  color: colorScheme.outlineVariant.withOpacity(0.45),
+                return _YouTubeSearchListTile(
+                  key: ValueKey(result.id),
+                  result: result,
+                  onDownload: onDownloadYouTube,
                 );
               },
             ),
-          ),
 
-        if (state.hasSearchedYouTube &&
-            !state.isYouTubeSearching &&
-            hasYouTubeResults)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 20, 24, 8),
-              child: Center(
-                child: state.isLoadingMoreYouTube
-                    ? SizedBox(
-                        width: 28,
-                        height: 28,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 3,
+          if (state.hasSearchedYouTube &&
+              !state.isYouTubeSearching &&
+              hasYouTubeResults)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(0, 16, 0, 8),
+                child: Center(
+                  child: state.isLoadingMoreYouTube
+                      ? SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: CircularProgressIndicator(
+                            strokeWidth: 3,
+                            color: colorScheme.primary,
+                          ),
+                        )
+                      : state.hasMoreYouTube
+                      ? OutlinedButton.icon(
+                          onPressed: onLoadMoreYouTube,
+                          icon: const Icon(Icons.expand_more_rounded),
+                          label: Text(l10n.showMore),
+                        )
+                      : Text(
+                          l10n.noMoreResults,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                ),
+              ),
+            ),
+
+          if (state.hasSearchedYouTube &&
+              !state.isYouTubeSearching &&
+              !hasYouTubeResults)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.only(top: 24),
+                child: Material(
+                  color: colorScheme.surfaceContainer,
+                  borderRadius: BorderRadius.circular(28),
+                  clipBehavior: Clip.antiAlias,
+                  child: Padding(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Icon(
+                          Icons.search_off_rounded,
+                          size: 48,
                           color: colorScheme.primary,
                         ),
-                      )
-                    : state.hasMoreYouTube
-                    ? OutlinedButton.icon(
-                        onPressed: onLoadMoreYouTube,
-                        icon: const Icon(Icons.expand_more_rounded),
-                        label: Text(l10n.showMore),
-                      )
-                    : Text(
-                        l10n.noMoreResults,
-                        style: theme.textTheme.bodySmall?.copyWith(
-                          color: colorScheme.onSurfaceVariant,
+                        const SizedBox(height: 16),
+                        Text(
+                          l10n.noYouTubeResults,
+                          style: theme.textTheme.titleMedium?.copyWith(
+                            fontWeight: FontWeight.w700,
+                          ),
+                          textAlign: TextAlign.center,
                         ),
-                      ),
+                        const SizedBox(height: 8),
+                        Text(
+                          l10n.tryAnotherSearch,
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                          textAlign: TextAlign.center,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
               ),
             ),
-          ),
-
-        if (state.hasSearchedYouTube &&
-            !state.isYouTubeSearching &&
-            !hasYouTubeResults)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
-              child: Column(
-                children: [
-                  Icon(
-                    Icons.search_off_rounded,
-                    size: 36,
-                    color: colorScheme.onSurfaceVariant,
-                  ),
-                  const SizedBox(height: 12),
-                  Text(
-                    l10n.noYouTubeResults,
-                    style: theme.textTheme.titleSmall?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    l10n.tryAnotherSearch,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                    textAlign: TextAlign.center,
-                  ),
-                ],
-              ),
-            ),
-          ),
-      ],
+        ],
+      ),
     );
   }
 }
@@ -1166,90 +1154,105 @@ class _YouTubeSearchListTile extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
-    return InkWell(
-      onTap: () async {
-        await onDownload(context, result);
-      },
-      borderRadius: BorderRadius.circular(14),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
-        child: Row(
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(10),
-              child: Stack(
-                children: [
-                  Image.network(
-                    result.thumbnailUrl,
-                    width: 112,
-                    height: 63,
-                    fit: BoxFit.cover,
-                    cacheWidth: 256,
-                    filterQuality: FilterQuality.low,
-                    errorBuilder: (_, __, ___) {
-                      return Container(
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 4),
+      child: Material(
+        color: colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(20),
+        clipBehavior: Clip.antiAlias,
+        child: InkWell(
+          onTap: () async {
+            await onDownload(context, result);
+          },
+          borderRadius: BorderRadius.circular(20),
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(12, 10, 8, 10),
+            child: Row(
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(14),
+                  child: Stack(
+                    children: [
+                      Image.network(
+                        result.thumbnailUrl,
                         width: 112,
                         height: 63,
-                        color: colorScheme.surfaceContainerHighest,
-                        child: Icon(
-                          Icons.play_circle_outline_rounded,
-                          color: colorScheme.onSurfaceVariant,
-                        ),
-                      );
-                    },
-                  ),
-                  if (result.duration != null)
-                    Positioned(
-                      right: 4,
-                      bottom: 4,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 2,
-                        ),
-                        decoration: BoxDecoration(
-                          color: Colors.black87,
-                          borderRadius: BorderRadius.circular(4),
-                        ),
-                        child: Text(
-                          _formatYouTubeDuration(result.duration!),
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 11,
-                            fontWeight: FontWeight.w600,
+                        fit: BoxFit.cover,
+                        cacheWidth: 256,
+                        filterQuality: FilterQuality.low,
+                        errorBuilder: (_, __, ___) {
+                          return Container(
+                            width: 112,
+                            height: 63,
+                            color: colorScheme.surfaceContainerHighest,
+                            child: Icon(
+                              Icons.play_circle_outline_rounded,
+                              color: colorScheme.onSurfaceVariant,
+                            ),
+                          );
+                        },
+                      ),
+                      if (result.duration != null)
+                        Positioned(
+                          right: 4,
+                          bottom: 4,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 2,
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black87,
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: Text(
+                              _formatYouTubeDuration(result.duration!),
+                              style: const TextStyle(
+                                color: Colors.white,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
                           ),
                         ),
+                    ],
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        result.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodyLarge?.copyWith(
+                          fontWeight: FontWeight.w600,
+                        ),
                       ),
-                    ),
-                ],
-              ),
-            ),
-            const SizedBox(width: 14),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    result.title,
-                    maxLines: 2,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodyMedium?.copyWith(
-                      fontWeight: FontWeight.w700,
-                    ),
+                      const SizedBox(height: 3),
+                      Text(
+                        result.author,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.bodySmall?.copyWith(
+                          color: colorScheme.onSurfaceVariant,
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  Text(
-                    result.author,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: colorScheme.onSurfaceVariant,
-                    ),
-                  ),
-                ],
-              ),
+                ),
+                const SizedBox(width: 4),
+                const SizedBox(
+                  width: 44,
+                  height: 44,
+                  child: Center(child: Icon(Icons.download_rounded)),
+                ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1270,40 +1273,38 @@ class _EmptyResultsSliver extends StatelessWidget {
     final l10n = AppLocalizations.of(context)!;
 
     return SliverToBoxAdapter(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
-        child: Column(
-          children: [
-            Container(
-              width: 72,
-              height: 72,
-              decoration: BoxDecoration(
-                color: colorScheme.surfaceContainerHighest,
-                shape: BoxShape.circle,
-              ),
-              child: Icon(
+      child: Material(
+        color: colorScheme.surfaceContainer,
+        borderRadius: BorderRadius.circular(28),
+        clipBehavior: Clip.antiAlias,
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
                 Icons.search_off_rounded,
-                size: 32,
-                color: colorScheme.onSurfaceVariant,
+                size: 48,
+                color: colorScheme.primary,
               ),
-            ),
-            const SizedBox(height: 18),
-            Text(
-              l10n.noLibraryResults(query),
-              style: theme.textTheme.titleMedium?.copyWith(
-                fontWeight: FontWeight.w700,
+              const SizedBox(height: 16),
+              Text(
+                l10n.noLibraryResults(query),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-            const SizedBox(height: 8),
-            Text(
-              l10n.noLibraryMatches,
-              style: theme.textTheme.bodyMedium?.copyWith(
-                color: colorScheme.onSurfaceVariant,
+              const SizedBox(height: 8),
+              Text(
+                l10n.noLibraryMatches,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: colorScheme.onSurfaceVariant,
+                ),
+                textAlign: TextAlign.center,
               ),
-              textAlign: TextAlign.center,
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1321,49 +1322,42 @@ class _DefaultSearchViewSliver extends StatelessWidget {
     final colorScheme = theme.colorScheme;
     final l10n = AppLocalizations.of(context)!;
 
-    return SliverToBoxAdapter(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Center(
-              child: Container(
-                width: 88,
-                height: 88,
-                decoration: BoxDecoration(
-                  color: colorScheme.primaryContainer.withOpacity(0.65),
-                  shape: BoxShape.circle,
-                ),
-                child: Icon(
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      sliver: SliverToBoxAdapter(
+        child: Material(
+          color: colorScheme.surfaceContainer,
+          borderRadius: BorderRadius.circular(28),
+          clipBehavior: Clip.antiAlias,
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(
                   Icons.manage_search_rounded,
-                  size: 42,
+                  size: 48,
                   color: colorScheme.primary,
                 ),
-              ),
-            ),
-            const SizedBox(height: 24),
-            Center(
-              child: Text(
-                l10n.whatToListen,
-                style: theme.textTheme.titleLarge?.copyWith(
-                  fontWeight: FontWeight.w700,
+                const SizedBox(height: 16),
+                Text(
+                  l10n.whatToListen,
+                  style: theme.textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-                textAlign: TextAlign.center,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Center(
-              child: Text(
-                l10n.searchDescriptionLong,
-                style: theme.textTheme.bodyMedium?.copyWith(
-                  color: colorScheme.onSurfaceVariant,
-                  height: 1.45,
+                const SizedBox(height: 8),
+                Text(
+                  l10n.searchDescriptionLong,
+                  style: theme.textTheme.bodyMedium?.copyWith(
+                    color: colorScheme.onSurfaceVariant,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-                textAlign: TextAlign.center,
-              ),
+              ],
             ),
-          ],
+          ),
         ),
       ),
     );
@@ -1474,82 +1468,128 @@ class _SearchSongListTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final artist = song.artist;
-
-    final hasArtist = artist != null && artist.trim().isNotEmpty;
-
     final l10n = AppLocalizations.of(context)!;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
 
-    return Selector<PlayerController, bool>(
+    final artist = song.artist?.trim() ?? '';
+
+    final hasArtist = artist.isNotEmpty;
+
+    return Selector<
+      PlayerController,
+      ({bool isCurrentSong, String? coverPath, Uint8List? coverBytes})
+    >(
       selector: (_, controller) {
-        return controller.currentSong?.id == song.id;
-      },
-      builder: (context, isCurrentSong, _) {
-        final theme = Theme.of(context);
+        final currentSong = controller.currentSong;
 
-        return ListTile(
-          onTap: () {
-            _handleSongTap(context);
-          },
-          onLongPress: () {
-            SongOptions.show(context, song);
-          },
-          contentPadding: const EdgeInsets.symmetric(
-            horizontal: 8,
-            vertical: 4,
-          ),
-          leading: _LibraryArtwork(
-            coverPath: song.coverPath,
-            size: 48,
-            borderRadius: 10,
-            isPlaying: isCurrentSong,
-          ),
-          title: Text(
-            song.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: isCurrentSong
-                ? theme.textTheme.bodyMedium?.copyWith(
-                    color: theme.colorScheme.primary,
-                    fontWeight: FontWeight.bold,
-                  )
-                : theme.textTheme.bodyMedium?.copyWith(
-                    fontWeight: FontWeight.w600,
+        final isCurrentSong = currentSong?.id == song.id;
+
+        final effectiveCoverPath = isCurrentSong
+            ? currentSong?.coverPath
+            : song.coverPath;
+
+        final effectiveCoverBytes = isCurrentSong
+            ? currentSong?.coverBytes
+            : song.coverBytes;
+
+        return (
+          isCurrentSong: isCurrentSong,
+          coverPath: effectiveCoverPath,
+          coverBytes: effectiveCoverBytes,
+        );
+      },
+      builder: (context, state, _) {
+        return Padding(
+          padding: const EdgeInsets.symmetric(vertical: 4),
+          child: InkWell(
+            onTap: () {
+              _handleSongTap(context);
+            },
+            onLongPress: () {
+              SongOptions.show(context, song);
+            },
+            borderRadius: BorderRadius.circular(16),
+            child: Padding(
+              padding: const EdgeInsets.symmetric(vertical: 6, horizontal: 4),
+              child: Row(
+                children: [
+                  _LibraryArtwork(
+                    key: ValueKey(
+                      '${song.id}_'
+                      '${state.coverPath ?? 'no_path'}_'
+                      '${state.coverBytes?.hashCode ?? 0}',
+                    ),
+                    coverPath: state.coverPath,
+                    coverBytes: state.coverBytes,
+                    size: 48,
+                    borderRadius: 14,
+                    isPlaying: state.isCurrentSong,
                   ),
-          ),
-          subtitle: hasArtist
-              ? Padding(
-                  padding: const EdgeInsets.only(top: 2),
-                  child: Text(
-                    artist!,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: theme.textTheme.bodySmall?.copyWith(
-                      color: theme.colorScheme.onSurfaceVariant,
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Text(
+                          song.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodyLarge?.copyWith(
+                            fontWeight: FontWeight.w600,
+                            color: state.isCurrentSong
+                                ? colorScheme.primary
+                                : null,
+                          ),
+                        ),
+                        const SizedBox(height: 3),
+                        Text(
+                          hasArtist ? artist : l10n.unknownArtist,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: theme.textTheme.bodySmall?.copyWith(
+                            color: colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                )
-              : null,
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                _formatDuration(song.duration),
-                style: theme.textTheme.bodySmall?.copyWith(
-                  color: theme.colorScheme.onSurfaceVariant,
-                ),
+                  const SizedBox(width: 8),
+                  Text(
+                    _formatDuration(song.duration),
+                    style: theme.textTheme.bodySmall?.copyWith(
+                      color: colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                  const SizedBox(width: 2),
+                  Builder(
+                    builder: (buttonContext) {
+                      return Material(
+                        color: Colors.transparent,
+                        borderRadius: BorderRadius.circular(14),
+                        clipBehavior: Clip.antiAlias,
+                        child: InkWell(
+                          onTap: () {
+                            SongOptions.show(
+                              context,
+                              song,
+                              anchorContext: buttonContext,
+                            );
+                          },
+                          borderRadius: BorderRadius.circular(14),
+                          child: const SizedBox(
+                            width: 44,
+                            height: 44,
+                            child: Icon(Icons.more_vert),
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ],
               ),
-              const SizedBox(width: 4),
-              IconButton(
-                onPressed: () {
-                  SongOptions.show(context, song);
-                },
-                icon: const Icon(Icons.more_vert_rounded, size: 20),
-                tooltip: l10n.options,
-                visualDensity: VisualDensity.compact,
-                color: theme.colorScheme.onSurfaceVariant,
-              ),
-            ],
+            ),
           ),
         );
       },
@@ -1563,17 +1603,16 @@ enum _SongTapAction { replaceQueue, addToQueue, removeFromQueue, cancel }
 
 class _LibraryArtwork extends StatelessWidget {
   final String? coverPath;
-
+  final Uint8List? coverBytes;
   final double size;
-
   final double borderRadius;
-
   final IconData fallbackIcon;
-
   final bool isPlaying;
 
   const _LibraryArtwork({
+    super.key,
     required this.coverPath,
+    required this.coverBytes,
     required this.size,
     required this.borderRadius,
     this.fallbackIcon = Icons.music_note,
@@ -1582,6 +1621,34 @@ class _LibraryArtwork extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bytes = coverBytes;
+
+    if (bytes != null && bytes.isNotEmpty) {
+      return Stack(
+        alignment: Alignment.center,
+        children: [
+          ClipRRect(
+            borderRadius: BorderRadius.circular(borderRadius),
+            child: Image.memory(
+              bytes,
+              width: size,
+              height: size,
+              fit: BoxFit.cover,
+              cacheWidth: 128,
+              cacheHeight: 128,
+              filterQuality: FilterQuality.low,
+              gaplessPlayback: true,
+              errorBuilder: (context, error, stackTrace) {
+                return _buildFallback(context);
+              },
+            ),
+          ),
+          if (isPlaying)
+            _PlayingOverlay(size: size, borderRadius: borderRadius),
+        ],
+      );
+    }
+
     final path = coverPath;
 
     if (path == null || path.isEmpty) {
@@ -1655,20 +1722,18 @@ class _LibraryArtwork extends StatelessWidget {
   }
 
   Widget _buildFallback(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final iconColor = isPlaying
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.onSurfaceVariant;
 
-    return Container(
+    return SizedBox(
       width: size,
       height: size,
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(borderRadius),
-      ),
       child: Center(
         child: Icon(
           isPlaying ? Icons.graphic_eq : fallbackIcon,
-          size: size * 0.45,
-          color: isPlaying ? colorScheme.primary : colorScheme.onSurfaceVariant,
+          size: size * 0.48,
+          color: iconColor,
         ),
       ),
     );
@@ -1848,22 +1913,18 @@ class _AndroidLibraryArtworkState extends State<_AndroidLibraryArtwork> {
   }
 
   Widget _buildFallback(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
+    final iconColor = widget.isPlaying
+        ? Theme.of(context).colorScheme.primary
+        : Theme.of(context).colorScheme.onSurfaceVariant;
 
-    return Container(
+    return SizedBox(
       width: widget.size,
       height: widget.size,
-      decoration: BoxDecoration(
-        color: colorScheme.surfaceContainerHighest,
-        borderRadius: BorderRadius.circular(widget.borderRadius),
-      ),
       child: Center(
         child: Icon(
           widget.isPlaying ? Icons.graphic_eq : widget.fallbackIcon,
-          size: widget.size * 0.45,
-          color: widget.isPlaying
-              ? colorScheme.primary
-              : colorScheme.onSurfaceVariant,
+          size: widget.size * 0.48,
+          color: iconColor,
         ),
       ),
     );
@@ -1885,13 +1946,13 @@ class _PlayingOverlay extends StatelessWidget {
       width: size,
       height: size,
       decoration: BoxDecoration(
-        color: Colors.black54,
+        color: Colors.black45,
         borderRadius: BorderRadius.circular(borderRadius),
       ),
       child: Icon(
         Icons.graphic_eq,
         color: Theme.of(context).colorScheme.primary,
-        size: size * 0.45,
+        size: size * 0.5,
       ),
     );
   }
