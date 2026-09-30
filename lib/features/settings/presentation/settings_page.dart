@@ -471,7 +471,7 @@ class _SettingsPageState extends State<SettingsPage> {
           content: SingleChildScrollView(
             child: Text(
               'Sonara\n'
-              'v1.9.4\n\n'
+              'v2.1.0\n\n'
               '${l10n.aboutSonaraDescription}\n\n'
               '• ${l10n.developer}: Warycoe\n'
               '• ${l10n.helper}: El Sabelotodo\n'
@@ -620,7 +620,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
             Center(
               child: Text(
-                l10n.version('1.9.4'),
+                l10n.version('2.1.0'),
                 style: TextStyle(
                   fontSize: 11,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
