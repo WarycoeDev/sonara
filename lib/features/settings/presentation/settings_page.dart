@@ -16,6 +16,7 @@ import '../../player/data/services/audio_player_service.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
+  static const String _appVersion = '2.3.0';
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -472,7 +473,9 @@ class _SettingsPageState extends State<SettingsPage> {
           content: SingleChildScrollView(
             child: Text(
               'Sonara\n'
-              'v2.1.0\n\n'
+              //'v&_appVersion\n\n'
+              'v'
+              '${SettingsPage._appVersion}\n\n'
               '${l10n.aboutSonaraDescription}\n\n'
               '• ${l10n.developer}: Warycoe\n'
               '• ${l10n.helper}: El Sabelotodo\n'
@@ -621,7 +624,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
             Center(
               child: Text(
-                l10n.version('2.1.0'),
+                l10n.version(SettingsPage._appVersion),
                 style: TextStyle(
                   fontSize: 11,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,
