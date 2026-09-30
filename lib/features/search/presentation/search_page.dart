@@ -561,9 +561,9 @@ class _SearchPageState extends State<SearchPage> {
             cacheExtent: 500,
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             slivers: [
-              // ===============================================================
+              // =============================================================
               // DESCRIPCIÓN
-              // ===============================================================
+              // =============================================================
               SliverPadding(
                 padding: const EdgeInsets.fromLTRB(16, 16, 16, 0),
                 sliver: SliverToBoxAdapter(
@@ -578,9 +578,9 @@ class _SearchPageState extends State<SearchPage> {
 
               const SliverToBoxAdapter(child: SizedBox(height: 16)),
 
-              // ===============================================================
+              // =============================================================
               // BARRA DE BÚSQUEDA
-              // ===============================================================
+              // =============================================================
               SliverPadding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 sliver: SliverToBoxAdapter(
@@ -592,9 +592,9 @@ class _SearchPageState extends State<SearchPage> {
                 ),
               ),
 
-              // ===============================================================
+              // =============================================================
               // BOTÓN YOUTUBE
-              // ===============================================================
+              // =============================================================
               if (Platform.isAndroid)
                 SliverPadding(
                   padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
@@ -616,9 +616,9 @@ class _SearchPageState extends State<SearchPage> {
 
               const SliverToBoxAdapter(child: SizedBox(height: 24)),
 
-              // ===============================================================
+              // =============================================================
               // RESULTADOS
-              // ===============================================================
+              // =============================================================
               ValueListenableBuilder<_SearchState>(
                 valueListenable: _searchState,
                 builder: (context, state, _) {
@@ -635,7 +635,15 @@ class _SearchPageState extends State<SearchPage> {
                 },
               ),
 
-              const SliverToBoxAdapter(child: SizedBox(height: 32)),
+              // =============================================================
+              // ESPACIO INFERIOR DEL SCROLL
+              //
+              // IMPORTANTE:
+              // Esto NO reduce el viewport.
+              // Simplemente permite desplazar el último resultado
+              // por encima del MiniPlayer.
+              // =============================================================
+              const SliverToBoxAdapter(child: SizedBox(height: 112)),
             ],
           ),
         ),

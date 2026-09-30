@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'dart:typed_data';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -275,15 +276,16 @@ class _MiniPlayerCard extends StatelessWidget {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
 
+    const borderRadius = BorderRadius.all(Radius.circular(28));
+
     return Material(
       color: Colors.transparent,
       child: InkWell(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(28),
+        borderRadius: borderRadius,
         child: Ink(
           decoration: BoxDecoration(
-            color: colorScheme.surfaceContainer,
-            borderRadius: BorderRadius.circular(28),
+            borderRadius: borderRadius,
             border: Border.all(
               color: colorScheme.outlineVariant.withOpacity(0.35),
             ),
@@ -297,68 +299,83 @@ class _MiniPlayerCard extends StatelessWidget {
             ],
           ),
           child: ClipRRect(
-            borderRadius: BorderRadius.circular(28),
-            child: Stack(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
-                  child: Row(
-                    children: [
-                      _MiniPlayerArtwork(coverPath: song.coverPath, size: 50),
+            borderRadius: borderRadius,
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+              child: Container(
+                decoration: BoxDecoration(
+                  // Transparente para permitir ver lo que hay debajo.
+                  color: colorScheme.surface.withOpacity(0.45),
+                  borderRadius: borderRadius,
+                ),
+                child: Stack(
+                  children: [
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(10, 10, 8, 10),
+                      child: Row(
+                        children: [
+                          _MiniPlayerArtwork(
+                            coverPath: song.coverPath,
+                            size: 50,
+                          ),
 
-                      const SizedBox(width: 12),
+                          const SizedBox(width: 12),
 
-                      Expanded(
-                        child: _MiniPlayerInfo(
-                          title: song.title,
-                          position: position,
-                          duration: duration,
+                          Expanded(
+                            child: _MiniPlayerInfo(
+                              title: song.title,
+                              position: position,
+                              duration: duration,
+                            ),
+                          ),
+
+                          const SizedBox(width: 4),
+
+                          _MiniPlayerControlButton(
+                            tooltip: l10n.previous,
+                            icon: Icons.skip_previous_rounded,
+                            enabled: hasPrevious,
+                            onPressed: hasPrevious ? onPrevious : null,
+                          ),
+
+                          const SizedBox(width: 2),
+
+                          _MiniPlayerPlayButton(
+                            isPlaying: isPlaying,
+                            tooltip: isPlaying ? l10n.pause : l10n.play,
+                            onPressed: onPlayPause,
+                          ),
+
+                          const SizedBox(width: 2),
+
+                          _MiniPlayerControlButton(
+                            tooltip: l10n.next,
+                            icon: Icons.skip_next_rounded,
+                            enabled: hasNext,
+                            onPressed: hasNext ? onNext : null,
+                          ),
+                        ],
+                      ),
+                    ),
+
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: IgnorePointer(
+                        child: LinearProgressIndicator(
+                          value: progress,
+                          minHeight: 3,
+                          borderRadius: BorderRadius.circular(3),
+                          backgroundColor: colorScheme.primary.withOpacity(
+                            0.10,
+                          ),
                         ),
                       ),
-
-                      const SizedBox(width: 4),
-
-                      _MiniPlayerControlButton(
-                        tooltip: l10n.previous,
-                        icon: Icons.skip_previous_rounded,
-                        enabled: hasPrevious,
-                        onPressed: hasPrevious ? onPrevious : null,
-                      ),
-
-                      const SizedBox(width: 2),
-
-                      _MiniPlayerPlayButton(
-                        isPlaying: isPlaying,
-                        tooltip: isPlaying ? l10n.pause : l10n.play,
-                        onPressed: onPlayPause,
-                      ),
-
-                      const SizedBox(width: 2),
-
-                      _MiniPlayerControlButton(
-                        tooltip: l10n.next,
-                        icon: Icons.skip_next_rounded,
-                        enabled: hasNext,
-                        onPressed: hasNext ? onNext : null,
-                      ),
-                    ],
-                  ),
-                ),
-
-                Positioned(
-                  left: 0,
-                  right: 0,
-                  bottom: 0,
-                  child: IgnorePointer(
-                    child: LinearProgressIndicator(
-                      value: progress,
-                      minHeight: 3,
-                      borderRadius: BorderRadius.circular(3),
-                      backgroundColor: colorScheme.primary.withOpacity(0.10),
                     ),
-                  ),
+                  ],
                 ),
-              ],
+              ),
             ),
           ),
         ),

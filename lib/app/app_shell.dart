@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:provider/provider.dart';
 
 import '../../l10n/app_localizations.dart';
 import '../features/home/presentation/home_page.dart';
 import '../features/library/presentation/library_page.dart';
+import '../features/player/presentation/controllers/player_controller.dart';
 import '../features/player/presentation/widgets/mini_player.dart';
 import '../features/search/presentation/search_page.dart';
 import '../features/settings/presentation/settings_page.dart';
@@ -96,7 +98,14 @@ class _AppShellState extends State<AppShell>
     final colorScheme = theme.colorScheme;
 
     final showMiniPlayer = _selectedIndex != 3;
+
     final movingForward = _selectedIndex > _previousIndex;
+
+    final hasSong = context.select<PlayerController, bool>(
+      (controller) => controller.currentSong != null,
+    );
+
+    final miniPlayerVisible = showMiniPlayer && hasSong;
 
     final titles = [l10n.appName, l10n.library, l10n.search, l10n.settings];
 
@@ -114,12 +123,9 @@ class _AppShellState extends State<AppShell>
         }
       },
       child: Scaffold(
-        // ---------------------------------------------------------
-        // APP BAR ORIGINAL
-        // ---------------------------------------------------------
         appBar: AppBar(
           toolbarHeight: 76,
-          backgroundColor: Theme.of(context).scaffoldBackgroundColor,
+          backgroundColor: theme.scaffoldBackgroundColor,
           surfaceTintColor: Colors.transparent,
           scrolledUnderElevation: 0,
           elevation: 0,
@@ -127,17 +133,19 @@ class _AppShellState extends State<AppShell>
           titleSpacing: 24,
           title: Text(
             titles[_selectedIndex],
-            style: Theme.of(context).textTheme.headlineMedium
-                ?.copyWith(fontWeight: FontWeight.w700, letterSpacing: -0.8),
+            style: theme.textTheme.headlineMedium?.copyWith(
+              fontWeight: FontWeight.w700,
+              letterSpacing: -0.8,
+            ),
           ),
         ),
 
-        // ---------------------------------------------------------
-        // CONTENIDO
-        // ---------------------------------------------------------
-        body: Column(
+        body: Stack(
           children: [
-            Expanded(
+            // =========================================================
+            // CONTENIDO
+            // =========================================================
+            Positioned.fill(
               child: Navigator(
                 key: _contentNavigatorKey,
                 onGenerateRoute: (settings) {
@@ -158,65 +166,67 @@ class _AppShellState extends State<AppShell>
               ),
             ),
 
-            if (showMiniPlayer) const MiniPlayer(),
+            // =========================================================
+            // MINI PLAYER
+            // =========================================================
+            if (miniPlayerVisible)
+              const Positioned(
+                left: 0,
+                right: 0,
+                bottom: -6,
+                child: MiniPlayer(),
+              ),
           ],
         ),
 
-        // ---------------------------------------------------------
-        // BARRA DE NAVEGACIÓN FLOTANTE
-        // ---------------------------------------------------------
-        bottomNavigationBar: SafeArea(
-          top: false,
-          minimum: const EdgeInsets.fromLTRB(12, 4, 12, 10),
-          child: Material(
-            color: colorScheme.surfaceContainer,
-            borderRadius: BorderRadius.circular(28),
-            clipBehavior: Clip.antiAlias,
-            child: NavigationBar(
-              height: 72,
-              selectedIndex: _selectedIndex,
-              onDestinationSelected: _onDestinationSelected,
+        // ===========================================================
+        // BOTTOM NAVIGATION BAR REAL
+        // ===========================================================
+        bottomNavigationBar: NavigationBar(
+          height: 64,
+          selectedIndex: _selectedIndex,
+          onDestinationSelected: _onDestinationSelected,
 
-              backgroundColor: Colors.transparent,
-              surfaceTintColor: Colors.transparent,
-              shadowColor: Colors.transparent,
-              elevation: 0,
+          // La barra ocupa todo el ancho del Scaffold.
+          backgroundColor: colorScheme.surface,
 
-              indicatorColor: colorScheme.primaryContainer,
+          surfaceTintColor: Colors.transparent,
+          shadowColor: Colors.transparent,
+          elevation: 0,
 
-              indicatorShape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(20),
-              ),
+          indicatorColor: colorScheme.primaryContainer,
 
-              labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-
-              destinations: [
-                NavigationDestination(
-                  icon: const Icon(Icons.home_outlined, size: 24),
-                  selectedIcon: const Icon(Icons.home_rounded, size: 24),
-                  label: l10n.home,
-                ),
-                NavigationDestination(
-                  icon: const Icon(Icons.library_music_outlined, size: 24),
-                  selectedIcon: const Icon(
-                    Icons.library_music_rounded,
-                    size: 24,
-                  ),
-                  label: l10n.library,
-                ),
-                NavigationDestination(
-                  icon: const Icon(Icons.search_rounded, size: 24),
-                  selectedIcon: const Icon(Icons.search_rounded, size: 24),
-                  label: l10n.search,
-                ),
-                NavigationDestination(
-                  icon: const Icon(Icons.settings_outlined, size: 24),
-                  selectedIcon: const Icon(Icons.settings_rounded, size: 24),
-                  label: l10n.settings,
-                ),
-              ],
-            ),
+          indicatorShape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(16),
           ),
+
+          labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
+
+          destinations: [
+            NavigationDestination(
+              icon: const Icon(Icons.home_outlined, size: 24),
+              selectedIcon: const Icon(Icons.home_rounded, size: 24),
+              label: l10n.home,
+            ),
+
+            NavigationDestination(
+              icon: const Icon(Icons.library_music_outlined, size: 24),
+              selectedIcon: const Icon(Icons.library_music_rounded, size: 24),
+              label: l10n.library,
+            ),
+
+            NavigationDestination(
+              icon: const Icon(Icons.search_rounded, size: 24),
+              selectedIcon: const Icon(Icons.search_rounded, size: 24),
+              label: l10n.search,
+            ),
+
+            NavigationDestination(
+              icon: const Icon(Icons.settings_outlined, size: 24),
+              selectedIcon: const Icon(Icons.settings_rounded, size: 24),
+              label: l10n.settings,
+            ),
+          ],
         ),
       ),
     );
