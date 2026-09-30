@@ -14,6 +14,8 @@ import '../../../statistics/data/statistics_repository.dart';
 import '../../data/services/audio_player_service.dart';
 import '../../data/services/artwork_file_service.dart';
 
+import 'package:sonara/app/dynamic_accent_service.dart';
+
 enum SonaraRepeatMode { off, one, all }
 
 class PlayerController extends ChangeNotifier {
@@ -32,6 +34,8 @@ class PlayerController extends ChangeNotifier {
   final List<Song> _queue = <Song>[];
 
   Song? _currentSong;
+
+  Song? _accentSong;
 
   int _currentIndex = -1;
 
@@ -1602,6 +1606,14 @@ class PlayerController extends ChangeNotifier {
   void _notify() {
     if (_isDisposed) {
       return;
+    }
+
+    // Avisa al color de acento solo cuando cambia la instancia de la canción
+    // (el servicio ya deduplica por carátula).
+    if (!identical(_accentSong, _currentSong)) {
+      _accentSong = _currentSong;
+
+      unawaited(DynamicAccentService.instance.updateForSong(_currentSong));
     }
 
     if (_isPlaying) {

@@ -23,30 +23,37 @@ class AppTheme {
     'cian': 'Cian',
   };
 
-  static ThemeData lightTheme(String colorTheme) {
-    final seedColor =
-        colorThemes[colorTheme] ?? colorThemes[defaultColorTheme]!;
+  /// Color guardado en Ajustes (o el de por defecto si el nombre no existe).
+  static Color baseSeed(String colorTheme) {
+    return colorThemes[colorTheme] ?? colorThemes[defaultColorTheme]!;
+  }
 
-    return ThemeData(
-      useMaterial3: true,
+  /// [accentOverride] es el color que sale de la carátula. Si es null se usa
+  /// el color elegido en Ajustes.
+  static ThemeData lightTheme(String colorTheme, {Color? accentOverride}) {
+    return _build(
+      seedColor: accentOverride ?? baseSeed(colorTheme),
       brightness: Brightness.light,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: seedColor,
-        brightness: Brightness.light,
-      ),
     );
   }
 
-  static ThemeData darkTheme(String colorTheme) {
-    final seedColor =
-        colorThemes[colorTheme] ?? colorThemes[defaultColorTheme]!;
+  static ThemeData darkTheme(String colorTheme, {Color? accentOverride}) {
+    return _build(
+      seedColor: accentOverride ?? baseSeed(colorTheme),
+      brightness: Brightness.dark,
+    );
+  }
 
+  static ThemeData _build({
+    required Color seedColor,
+    required Brightness brightness,
+  }) {
     return ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
+      brightness: brightness,
       colorScheme: ColorScheme.fromSeed(
         seedColor: seedColor,
-        brightness: Brightness.dark,
+        brightness: brightness,
       ),
     );
   }

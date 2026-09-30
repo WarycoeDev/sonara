@@ -4,6 +4,7 @@ import 'package:flutter_localizations/flutter_localizations.dart';
 import '../l10n/app_localizations.dart';
 import '../theme/app_theme.dart';
 import 'app_shell.dart';
+import 'dynamic_accent_service.dart';
 import 'locale_service.dart';
 import 'theme_service.dart';
 
@@ -26,6 +27,14 @@ class SonaraApp extends StatefulWidget {
 }
 
 class _SonaraAppState extends State<SonaraApp> {
+  // Se junta todo en un solo Listenable para no anidar builders.
+  late final Listenable _appListenable = Listenable.merge([
+    SonaraApp.themeModeNotifier,
+    SonaraApp.colorThemeNotifier,
+    SonaraApp.localeNotifier,
+    DynamicAccentService.instance.accentNotifier,
+  ]);
+
   @override
   void initState() {
     super.initState();
@@ -48,40 +57,44 @@ class _SonaraAppState extends State<SonaraApp> {
 
   @override
   Widget build(BuildContext context) {
-    return ValueListenableBuilder<ThemeMode>(
-      valueListenable: SonaraApp.themeModeNotifier,
-      builder: (context, themeMode, child) {
-        return ValueListenableBuilder<String>(
-          valueListenable: SonaraApp.colorThemeNotifier,
-          builder: (context, colorTheme, child) {
-            return ValueListenableBuilder<Locale?>(
-              valueListenable: SonaraApp.localeNotifier,
-              builder: (context, locale, child) {
-                return MaterialApp(
-                  title: 'Sonara',
-                  debugShowCheckedModeBanner: false,
+    return ListenableBuilder(
+      listenable: _appListenable,
+      builder: (context, child) {
+        final themeMode = SonaraApp.themeModeNotifier.value;
+        final colorTheme = SonaraApp.colorThemeNotifier.value;
+        final locale = SonaraApp.localeNotifier.value;
 
-                  locale: locale,
+        // Color de la carátula; null = usar el color elegido en Ajustes.
+        final accent = DynamicAccentService.instance.accentNotifier.value;
 
-                  supportedLocales: const [Locale('es'), Locale('en')],
+        return MaterialApp(
+          title: 'Sonara',
+          debugShowCheckedModeBanner: false,
 
-                  localizationsDelegates: const [
-                    AppLocalizations.delegate,
-                    GlobalMaterialLocalizations.delegate,
-                    GlobalWidgetsLocalizations.delegate,
-                    GlobalCupertinoLocalizations.delegate,
-                  ],
+          locale: locale,
 
-                  theme: AppTheme.lightTheme(colorTheme),
-                  darkTheme: AppTheme.darkTheme(colorTheme),
-                  themeMode: themeMode,
-                  home: const AppShell(),
-                );
-              },
-            );
-          },
+          supportedLocales: const [Locale('es'), Locale('en')],
+
+          localizationsDelegates: const [
+            AppLocalizations.delegate,
+            GlobalMaterialLocalizations.delegate,
+            GlobalWidgetsLocalizations.delegate,
+            GlobalCupertinoLocalizations.delegate,
+          ],
+
+          theme: AppTheme.lightTheme(colorTheme, accentOverride: accent),
+          darkTheme: AppTheme.darkTheme(colorTheme, accentOverride: accent),
+          themeMode: themeMode,
+
+          // Transición suave al cambiar de acento entre canciones.
+          themeAnimationDuration: const Duration(milliseconds: 450),
+          themeAnimationCurve: Curves.easeOutCubic,
+
+          home: child,
         );
       },
+      // AppShell se construye una sola vez y no se recrea al cambiar el tema.
+      child: const AppShell(),
     );
   }
 }
