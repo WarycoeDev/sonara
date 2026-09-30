@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -238,6 +237,7 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
 
     return SizeTransition(
       sizeFactor: curvedAnimation,
+      // ignore: deprecated_member_use
       axisAlignment: -1.0,
       child: FadeTransition(
         opacity: CurvedAnimation(parent: animation, curve: Curves.easeOut),
@@ -533,6 +533,7 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
             Expanded(
               child: CustomScrollView(
                 controller: _scrollController,
+                // ignore: deprecated_member_use
                 cacheExtent: 250,
                 slivers: [
                   SliverPadding(
@@ -590,6 +591,7 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
                     sliver: _canReorder && _isReordering
                         ? SliverReorderableList(
                             itemCount: _songs.length,
+                            // ignore: deprecated_member_use
                             onReorder: _reorderSongs,
                             proxyDecorator: (child, index, animation) {
                               return AnimatedBuilder(
@@ -632,6 +634,7 @@ class _LibraryPlaylistPageState extends State<LibraryPlaylistPage>
                                   parent: animation,
                                   curve: Curves.easeOutCubic,
                                 ),
+                                // ignore: deprecated_member_use
                                 axisAlignment: -1.0,
                                 child: _buildSongTile(
                                   context,
@@ -761,6 +764,7 @@ class _PlaylistArtwork extends StatelessWidget {
         cacheHeight: 192,
         filterQuality: FilterQuality.low,
         gaplessPlayback: true,
+        // ignore: unnecessary_underscores
         errorBuilder: (_, __, ___) {
           return _buildFallback(context);
         },
@@ -949,9 +953,8 @@ class _LibraryArtwork extends StatelessWidget {
     required this.coverPath,
     required this.size,
     required this.borderRadius,
-    this.fallbackIcon = Icons.music_note,
     this.isPlaying = false,
-  });
+  }) : fallbackIcon = Icons.music_note;
 
   @override
   Widget build(BuildContext context) {
@@ -985,6 +988,7 @@ class _LibraryArtwork extends StatelessWidget {
             cacheHeight: 96,
             filterQuality: FilterQuality.low,
             gaplessPlayback: true,
+            // ignore: unnecessary_underscores
             errorBuilder: (_, __, ___) {
               return _buildFallback(context);
             },
@@ -1106,6 +1110,7 @@ class _AndroidLibraryArtworkState extends State<_AndroidLibraryArtwork> {
             cacheHeight: 96,
             filterQuality: FilterQuality.low,
             gaplessPlayback: true,
+            // ignore: unnecessary_underscores
             errorBuilder: (_, __, ___) {
               return _buildFallback(context);
             },

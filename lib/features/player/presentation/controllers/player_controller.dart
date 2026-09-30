@@ -81,8 +81,6 @@ class PlayerController extends ChangeNotifier {
 
   static const Duration _durationTolerance = Duration(seconds: 5);
 
-  static const Duration _completionThreshold = Duration(milliseconds: 500);
-
   static const Duration _tickInterval = Duration(milliseconds: 200);
 
   Timer? _positionTicker;
@@ -357,28 +355,6 @@ class PlayerController extends ChangeNotifier {
   // ---------------------------------------------------------------------------
   // COMPLETADO
   // ---------------------------------------------------------------------------
-
-  void _checkCompletionFallback() {
-    if (_isDisposed ||
-        _isSeeking ||
-        _isHandlingCompletion ||
-        _currentSong == null ||
-        _duration <= Duration.zero) {
-      return;
-    }
-
-    final remaining = _duration - _position;
-
-    if (remaining <= _completionThreshold) {
-      _position = _duration;
-
-      _positionAnchorTime = null;
-
-      _isPlaying = false;
-
-      unawaited(_onSongCompleted());
-    }
-  }
 
   Future<void> _onSongCompleted() async {
     if (_isHandlingCompletion ||

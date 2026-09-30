@@ -66,8 +66,6 @@ class AudioPlayerService {
 
   int? _linuxCurrentIndex;
 
-  bool _linuxLoading = false;
-
   int _linuxLoadGeneration = 0;
 
   // ============================================================
@@ -215,8 +213,6 @@ class AudioPlayerService {
   );
 
   bool _androidLoudnessEnhancerReady = false;
-
-  double _currentTrackGainLinear = 1.0;
 
   /*
    * Id de la canción para la que el ReplayGain ya está preparado.
@@ -909,8 +905,6 @@ class AudioPlayerService {
 
     final hold = _holdMute();
 
-    _linuxLoading = true;
-
     try {
       await _syncVolume();
 
@@ -977,9 +971,7 @@ class AudioPlayerService {
 
       return null;
     } finally {
-      if (generation == _linuxLoadGeneration) {
-        _linuxLoading = false;
-      }
+      if (generation == _linuxLoadGeneration) {}
 
       _releaseMute(hold);
 
@@ -993,8 +985,6 @@ class AudioPlayerService {
 
   void _updateTrackGain(Song song) {
     final gainDb = _getTrackGainDb(song);
-
-    _currentTrackGainLinear = _dbToLinear(gainDb);
 
     debugPrint(
       '[SONARA REPLAYGAIN] '
@@ -1958,8 +1948,6 @@ class AudioPlayerService {
 
       _linuxCurrentIndex = null;
 
-      _currentTrackGainLinear = 1.0;
-
       _preparedSongId = null;
 
       if (Platform.isAndroid && _androidLoudnessEnhancerReady) {
@@ -2005,7 +1993,6 @@ class AudioPlayerService {
       return;
     }
 
-    // INVALIDAR TODO antes de cualquier await.
     _isDisposed = true;
 
     _operationGeneration++;

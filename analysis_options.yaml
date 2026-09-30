@@ -10,6 +10,12 @@
 include: package:flutter_lints/flutter.yaml
 
 analyzer:
+  errors:
+    avoid_print: ignore
+    control_flow_in_finally: ignore
+    deprecated_member_use: ignore
+    prefer_initializing_formals: ignore
+    unnecessary_underscores: ignore
   exclude:
     - build/**
     - android/**

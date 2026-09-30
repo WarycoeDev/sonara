@@ -99,11 +99,13 @@ class LocalLibraryRepository extends ChangeNotifier
     final index = _songs.indexWhere((song) => song.id == updatedSong.id);
 
     if (index == -1) {
-      print(
-        '[SONARA LIBRARY] '
-        'No se encontró la canción para actualizar: '
-        '${updatedSong.filePath}',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA LIBRARY] '
+          'No se encontró la canción para actualizar: '
+          '${updatedSong.filePath}',
+        );
+      }
 
       return;
     }
@@ -116,11 +118,13 @@ class LocalLibraryRepository extends ChangeNotifier
 
     await _libraryCacheService.saveSongs(_songs);
 
-    print(
-      '[SONARA LIBRARY] '
-      'Canción actualizada: '
-      '${updatedSong.title}',
-    );
+    if (kDebugMode) {
+      print(
+        '[SONARA LIBRARY] '
+        'Canción actualizada: '
+        '${updatedSong.title}',
+      );
+    }
 
     notifyListeners();
   }
@@ -152,21 +156,25 @@ class LocalLibraryRepository extends ChangeNotifier
 
         _hasLoaded = true;
 
-        print(
-          '[SONARA LIBRARY] '
-          'Biblioteca cargada desde caché.',
-        );
+        if (kDebugMode) {
+          print(
+            '[SONARA LIBRARY] '
+            'Biblioteca cargada desde caché.',
+          );
+        }
 
         completer.complete();
 
         return;
       }
 
-      print(
-        '[SONARA LIBRARY] '
-        'No hay caché. '
-        'Realizando primer escaneo...',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA LIBRARY] '
+          'No hay caché. '
+          'Realizando primer escaneo...',
+        );
+      }
 
       await _scanLibraryInternal();
 
@@ -223,10 +231,12 @@ class LocalLibraryRepository extends ChangeNotifier
 
       _hasLoaded = true;
 
-      print(
-        '[SONARA LIBRARY] '
-        'Biblioteca actualizada y guardada.',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA LIBRARY] '
+          'Biblioteca actualizada y guardada.',
+        );
+      }
 
       completer.complete();
 
@@ -373,12 +383,16 @@ class LocalLibraryRepository extends ChangeNotifier
           ),
         );
       } catch (error) {
-        print(
-          '[SONARA LIBRARY] '
-          'No se pudo procesar: ${file.path}',
-        );
+        if (kDebugMode) {
+          print(
+            '[SONARA LIBRARY] '
+            'No se pudo procesar: ${file.path}',
+          );
+        }
 
-        print('[SONARA LIBRARY] $error');
+        if (kDebugMode) {
+          print('[SONARA LIBRARY] $error');
+        }
       }
     }
 
@@ -400,29 +414,46 @@ class LocalLibraryRepository extends ChangeNotifier
         previousSong.fileLastModified == modified &&
         previousSong.fileSize == size;
 
-    print('[SONARA SCAN DEBUG]');
-    print('Archivo: ${file.path}');
-    print('Anterior size: ${previousSong?.fileSize}');
-    print('Actual size: $size');
-    print(
-      'Anterior modified: '
-      '${previousSong?.fileLastModified}',
-    );
-    print('Actual modified: $modified');
-    print('Título anterior: ${previousSong?.title}');
+    if (kDebugMode) {
+      print('[SONARA SCAN DEBUG]');
+    }
+    if (kDebugMode) {
+      print('Archivo: ${file.path}');
+    }
+    if (kDebugMode) {
+      print('Anterior size: ${previousSong?.fileSize}');
+    }
+    if (kDebugMode) {
+      print('Actual size: $size');
+    }
+    if (kDebugMode) {
+      print(
+        'Anterior modified: '
+        '${previousSong?.fileLastModified}',
+      );
+    }
+    if (kDebugMode) {
+      print('Actual modified: $modified');
+    }
+    if (kDebugMode) {
+      print('Título anterior: ${previousSong?.title}');
+    }
 
     // -------------------------------------------------------------------------
     // ARCHIVO SIN CAMBIOS
     // -------------------------------------------------------------------------
 
     if (isSameFile) {
+      // ignore: unnecessary_non_null_assertion
       final coverPath = previousSong!.coverPath;
 
       if (coverPath == null || coverPath.isEmpty) {
-        print(
-          '[SONARA SCAN] '
-          'Sin cambios y sin portada: ${file.path}',
-        );
+        if (kDebugMode) {
+          print(
+            '[SONARA SCAN] '
+            'Sin cambios y sin portada: ${file.path}',
+          );
+        }
 
         return previousSong;
       }
@@ -433,10 +464,12 @@ class LocalLibraryRepository extends ChangeNotifier
           coverPath.startsWith('https://');
 
       if (isRemoteCover) {
-        print(
-          '[SONARA SCAN] '
-          'Sin cambios: ${file.path}',
-        );
+        if (kDebugMode) {
+          print(
+            '[SONARA SCAN] '
+            'Sin cambios: ${file.path}',
+          );
+        }
 
         return previousSong;
       }
@@ -447,21 +480,25 @@ class LocalLibraryRepository extends ChangeNotifier
         final coverLength = await coverFile.length();
 
         if (coverLength > 0) {
-          print(
-            '[SONARA SCAN] '
-            'Sin cambios: ${file.path}',
-          );
+          if (kDebugMode) {
+            print(
+              '[SONARA SCAN] '
+              'Sin cambios: ${file.path}',
+            );
+          }
 
           return previousSong;
         }
       }
 
       // La canción no cambió, pero su portada ya no existe.
-      print(
-        '[SONARA SCAN] '
-        'La portada cacheada ya no existe. '
-        'Regenerando: ${file.path}',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA SCAN] '
+          'La portada cacheada ya no existe. '
+          'Regenerando: ${file.path}',
+        );
+      }
 
       final metadata = await _linuxAudioMetadataService.readMetadata(
         file.path,
@@ -481,24 +518,30 @@ class LocalLibraryRepository extends ChangeNotifier
     // ARCHIVO MODIFICADO
     // -------------------------------------------------------------------------
 
-    print(
-      '[SONARA SCAN] '
-      'Archivo modificado: ${file.path}',
-    );
-
-    if (previousSong != null) {
+    if (kDebugMode) {
       print(
         '[SONARA SCAN] '
-        'Conservando título anterior: '
-        '"${previousSong.title}"',
+        'Archivo modificado: ${file.path}',
       );
+    }
+
+    if (previousSong != null) {
+      if (kDebugMode) {
+        print(
+          '[SONARA SCAN] '
+          'Conservando título anterior: '
+          '"${previousSong.title}"',
+        );
+      }
 
       await _deletePreviousArtwork(previousSong);
     } else {
-      print(
-        '[SONARA SCAN] '
-        'No existe canción anterior para: ${file.path}',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA SCAN] '
+          'No existe canción anterior para: ${file.path}',
+        );
+      }
     }
 
     final metadata = await _linuxAudioMetadataService.readMetadata(
@@ -537,10 +580,12 @@ class LocalLibraryRepository extends ChangeNotifier
       }
     }
 
-    print(
-      '[SONARA SCAN] '
-      'Título final: "$title"',
-    );
+    if (kDebugMode) {
+      print(
+        '[SONARA SCAN] '
+        'Título final: "$title"',
+      );
+    }
 
     // -------------------------------------------------------------------------
     // CREAR SONG ACTUALIZADO
@@ -589,19 +634,25 @@ class LocalLibraryRepository extends ChangeNotifier
 
       await coverFile.delete();
 
-      print(
-        '[SONARA COVER CACHE] '
-        'Carátula anterior eliminada: '
-        '$coverPath',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA COVER CACHE] '
+          'Carátula anterior eliminada: '
+          '$coverPath',
+        );
+      }
     } catch (error) {
-      print(
-        '[SONARA COVER CACHE] '
-        'No se pudo eliminar la carátula anterior: '
-        '$coverPath',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA COVER CACHE] '
+          'No se pudo eliminar la carátula anterior: '
+          '$coverPath',
+        );
+      }
 
-      print('[SONARA COVER CACHE] $error');
+      if (kDebugMode) {
+        print('[SONARA COVER CACHE] $error');
+      }
     }
   }
 
@@ -647,19 +698,23 @@ class LocalLibraryRepository extends ChangeNotifier
     }
 
     if (pendingIndexes.isEmpty) {
-      print(
-        '[SONARA REPLAYGAIN] '
-        'No hay pistas nuevas para analizar.',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA REPLAYGAIN] '
+          'No hay pistas nuevas para analizar.',
+        );
+      }
 
       return;
     }
 
-    print(
-      '[SONARA REPLAYGAIN] '
-      'Calculando ganancia para '
-      '${pendingIndexes.length} pista(s)...',
-    );
+    if (kDebugMode) {
+      print(
+        '[SONARA REPLAYGAIN] '
+        'Calculando ganancia para '
+        '${pendingIndexes.length} pista(s)...',
+      );
+    }
 
     final concurrency = Platform.isAndroid ? 1 : 3;
 
@@ -681,29 +736,35 @@ class LocalLibraryRepository extends ChangeNotifier
   Future<void> _calculateReplayGainForSong(int index) async {
     final song = _songs[index];
 
-    print(
-      '[SONARA REPLAYGAIN] '
-      'Analizando: ${song.title}',
-    );
+    if (kDebugMode) {
+      print(
+        '[SONARA REPLAYGAIN] '
+        'Analizando: ${song.title}',
+      );
+    }
 
     final gain = await _replayGainService.calculateTrackGain(song.filePath);
 
     if (gain == null) {
-      print(
-        '[SONARA REPLAYGAIN] '
-        'No se pudo calcular: ${song.title}',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA REPLAYGAIN] '
+          'No se pudo calcular: ${song.title}',
+        );
+      }
 
       return;
     }
 
     _songs[index] = song.copyWith(volumeGain: gain);
 
-    print(
-      '[SONARA REPLAYGAIN] '
-      '${song.title}: '
-      '${gain.toStringAsFixed(2)} dB',
-    );
+    if (kDebugMode) {
+      print(
+        '[SONARA REPLAYGAIN] '
+        '${song.title}: '
+        '${gain.toStringAsFixed(2)} dB',
+      );
+    }
   }
 
   bool _isSameFile(Song? previous, Song current) {

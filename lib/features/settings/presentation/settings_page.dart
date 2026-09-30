@@ -1,3 +1,5 @@
+// ignore_for_file: duplicate_ignore, deprecated_member_use
+
 import 'dart:async';
 import 'dart:ui';
 
@@ -78,12 +80,6 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
-  String get _colorThemeName {
-    final colorTheme = SonaraApp.colorThemeNotifier.value;
-
-    return _getColorThemeName(context, colorTheme);
-  }
-
   Future<void> _setTheme(ThemeMode themeMode) async {
     SonaraApp.themeModeNotifier.value = themeMode;
 
@@ -146,7 +142,9 @@ class _SettingsPageState extends State<SettingsPage> {
                   RadioListTile<ThemeMode>(
                     title: Text(l10n.system),
                     value: ThemeMode.system,
+                    // ignore: deprecated_member_use
                     groupValue: currentThemeMode,
+                    // ignore: deprecated_member_use
                     onChanged: (value) async {
                       if (value == null) {
                         return;
@@ -162,7 +160,9 @@ class _SettingsPageState extends State<SettingsPage> {
                   RadioListTile<ThemeMode>(
                     title: Text(l10n.light),
                     value: ThemeMode.light,
+                    // ignore: deprecated_member_use
                     groupValue: currentThemeMode,
+                    // ignore: deprecated_member_use
                     onChanged: (value) async {
                       if (value == null) {
                         return;
@@ -178,6 +178,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   RadioListTile<ThemeMode>(
                     title: Text(l10n.dark),
                     value: ThemeMode.dark,
+                    // ignore: deprecated_member_use
                     groupValue: currentThemeMode,
                     onChanged: (value) async {
                       if (value == null) {

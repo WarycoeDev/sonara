@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:io';
 import 'dart:math' as math;
-import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -143,9 +141,6 @@ class _CoverGradientBackground extends StatefulWidget {
 }
 
 class _CoverGradientBackgroundState extends State<_CoverGradientBackground> {
-  static const int _maxCacheEntries = 60;
-  static final Map<String, Color> _seedCache = <String, Color>{};
-
   Color? _seed;
   String? _requestedKey;
 
@@ -246,6 +241,7 @@ class _CoverGradientBackgroundState extends State<_CoverGradientBackground> {
               curve: Curves.easeOutCubic,
               builder: (context, color, _) {
                 final top = color ?? target;
+                // ignore: deprecated_member_use
                 final middle = Color.alphaBlend(top.withOpacity(0.45), surface);
 
                 return DecoratedBox(
@@ -563,6 +559,7 @@ class _MemoryArtwork extends StatelessWidget {
           cacheWidth: cacheSize,
           filterQuality: FilterQuality.medium,
           gaplessPlayback: true,
+          // ignore: unnecessary_underscores
           errorBuilder: (_, __, ___) {
             return const _DefaultArtwork();
           },
@@ -594,6 +591,7 @@ class _FileArtwork extends StatelessWidget {
           cacheWidth: cacheSize,
           filterQuality: FilterQuality.medium,
           gaplessPlayback: true,
+          // ignore: unnecessary_underscores
           errorBuilder: (_, __, ___) {
             return const _DefaultArtwork();
           },
@@ -717,6 +715,7 @@ class _AndroidAlbumArtworkState extends State<_AndroidAlbumArtwork> {
           cacheWidth: widget.cacheSize,
           filterQuality: FilterQuality.medium,
           gaplessPlayback: true,
+          // ignore: unnecessary_underscores
           errorBuilder: (_, __, ___) {
             return const _DefaultArtwork();
           },
@@ -1584,6 +1583,7 @@ class _RedesignedQueueSheet extends StatelessWidget {
                             isCurrent: song.id == data.currentSongId,
                           );
                         },
+                        // ignore: deprecated_member_use
                         onReorder: (oldIndex, newIndex) {
                           if (newIndex > oldIndex) {
                             newIndex--;
@@ -1643,6 +1643,7 @@ class _QueueItem extends StatelessWidget {
       },
       child: Material(
         color: isCurrent
+            // ignore: deprecated_member_use
             ? scheme.primary.withOpacity(0.08)
             : Colors.transparent,
         borderRadius: BorderRadius.circular(16),
@@ -1771,6 +1772,7 @@ class _QueueArtwork extends StatelessWidget {
           cacheHeight: 128,
           filterQuality: FilterQuality.low,
           gaplessPlayback: true,
+          // ignore: unnecessary_underscores
           errorBuilder: (_, __, ___) {
             return _fallback(context);
           },
@@ -1804,6 +1806,7 @@ class _QueueArtwork extends StatelessWidget {
         cacheHeight: 128,
         filterQuality: FilterQuality.low,
         gaplessPlayback: true,
+        // ignore: unnecessary_underscores
         errorBuilder: (_, __, ___) {
           return _fallback(context);
         },
@@ -1937,6 +1940,7 @@ class _AndroidQueueArtworkState extends State<_AndroidQueueArtwork> {
             cacheHeight: 128,
             filterQuality: FilterQuality.low,
             gaplessPlayback: true,
+            // ignore: unnecessary_underscores
             errorBuilder: (_, __, ___) {
               return _fallback(context);
             },

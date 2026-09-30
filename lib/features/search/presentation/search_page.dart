@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -275,12 +274,8 @@ class _SearchPageState extends State<SearchPage> {
     final completedNotifier = ValueNotifier<bool>(false);
     final errorNotifier = ValueNotifier<String?>(null);
 
-    var progressDialogOpen = false;
-
     try {
       _dismissKeyboard();
-
-      progressDialogOpen = true;
 
       showDialog<void>(
         context: context,
@@ -440,6 +435,7 @@ class _SearchPageState extends State<SearchPage> {
                             Text(
                               dialogL10n.downloadMayTake,
                               style: theme.textTheme.bodySmall?.copyWith(
+                                // ignore: deprecated_member_use
                                 color: colorScheme.onSurfaceVariant.withOpacity(
                                   0.55,
                                 ),
@@ -482,6 +478,7 @@ class _SearchPageState extends State<SearchPage> {
         result: request.result,
         fileName: request.fileName,
         onProgress: (progress) {
+          // ignore: invalid_use_of_protected_member
           if (!progressNotifier.hasListeners) {
             return;
           }
@@ -558,6 +555,7 @@ class _SearchPageState extends State<SearchPage> {
         backgroundColor: theme.scaffoldBackgroundColor,
         body: SafeArea(
           child: CustomScrollView(
+            // ignore: deprecated_member_use
             cacheExtent: 500,
             keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
             slivers: [
@@ -728,37 +726,6 @@ class _SearchState {
       youtubeResults: const [],
     );
   }
-}
-
-enum _DownloadDialogStatus { downloading, success, error }
-
-class _DownloadDialogState {
-  final _DownloadDialogStatus status;
-
-  final String title;
-
-  final String message;
-
-  const _DownloadDialogState({
-    required this.status,
-    required this.title,
-    required this.message,
-  });
-
-  const _DownloadDialogState.downloading()
-    : status = _DownloadDialogStatus.downloading,
-      title = 'Descargando audio',
-      message = 'Preparando la descarga y convirtiendo el audio a MP3...';
-
-  _DownloadDialogState.success(String message)
-    : status = _DownloadDialogStatus.success,
-      title = 'Descarga completada',
-      message = message;
-
-  _DownloadDialogState.error(String message)
-    : status = _DownloadDialogStatus.error,
-      title = 'Error en la descarga',
-      message = message;
 }
 
 // BARRA DE BÚSQUEDA
@@ -1188,6 +1155,7 @@ class _YouTubeSearchListTile extends StatelessWidget {
                         fit: BoxFit.cover,
                         cacheWidth: 256,
                         filterQuality: FilterQuality.low,
+                        // ignore: unnecessary_underscores
                         errorBuilder: (_, __, ___) {
                           return Container(
                             width: 112,
@@ -1380,7 +1348,7 @@ class _SearchSongListTile extends StatelessWidget {
   const _SearchSongListTile({super.key, required this.song});
 
   Future<void> _handleSongTap(BuildContext context) async {
-    final l10n = AppLocalizations.of(context)!;
+    AppLocalizations.of(context)!;
 
     final playerController = context.read<PlayerController>();
 
@@ -1623,9 +1591,8 @@ class _LibraryArtwork extends StatelessWidget {
     required this.coverBytes,
     required this.size,
     required this.borderRadius,
-    this.fallbackIcon = Icons.music_note,
     this.isPlaying = false,
-  });
+  }) : fallbackIcon = Icons.music_note;
 
   @override
   Widget build(BuildContext context) {
@@ -1994,16 +1961,4 @@ String _formatYouTubeDuration(Duration duration) {
   }
 
   return '$minutes:${seconds.toString().padLeft(2, '0')}';
-}
-
-String _formatEta(Duration duration) {
-  final minutes = duration.inMinutes;
-
-  final seconds = duration.inSeconds.remainder(60);
-
-  if (minutes > 0) {
-    return '$minutes min ${seconds.toString().padLeft(2, '0')} s';
-  }
-
-  return '$seconds s';
 }

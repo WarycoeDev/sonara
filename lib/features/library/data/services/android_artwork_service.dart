@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
+import 'package:flutter/foundation.dart';
 import 'package:path_provider/path_provider.dart';
 
 class AndroidArtworkService {
@@ -16,10 +17,12 @@ class AndroidArtworkService {
       final audioFile = File(filePath);
 
       if (!await audioFile.exists()) {
-        print(
-          '[SONARA ANDROID COVER] '
-          'El archivo no existe: $filePath',
-        );
+        if (kDebugMode) {
+          print(
+            '[SONARA ANDROID COVER] '
+            'El archivo no existe: $filePath',
+          );
+        }
 
         return null;
       }
@@ -75,11 +78,13 @@ class AndroidArtworkService {
         final length = await coverFile.length();
 
         if (length > 0) {
-          print(
-            '[SONARA ANDROID COVER] '
-            'Usando portada cacheada: '
-            '$coverPath',
-          );
+          if (kDebugMode) {
+            print(
+              '[SONARA ANDROID COVER] '
+              'Usando portada cacheada: '
+              '$coverPath',
+            );
+          }
 
           return coverPath;
         }
@@ -94,11 +99,13 @@ class AndroidArtworkService {
           if (await coverFile.exists()) {
             await coverFile.delete();
 
-            print(
-              '[SONARA ANDROID COVER CACHE] '
-              'Versión actual eliminada: '
-              '$coverPath',
-            );
+            if (kDebugMode) {
+              print(
+                '[SONARA ANDROID COVER CACHE] '
+                'Versión actual eliminada: '
+                '$coverPath',
+              );
+            }
           }
         } catch (_) {}
       }
@@ -107,11 +114,13 @@ class AndroidArtworkService {
       // EXTRAER PORTADA
       // ========================================================
 
-      print(
-        '[SONARA ANDROID COVER] '
-        'Extrayendo nueva portada: '
-        '$filePath',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA ANDROID COVER] '
+          'Extrayendo nueva portada: '
+          '$filePath',
+        );
+      }
 
       final command = [
         '-y',
@@ -133,10 +142,12 @@ class AndroidArtworkService {
       final returnCode = await session.getReturnCode();
 
       if (!ReturnCode.isSuccess(returnCode)) {
-        print(
-          '[SONARA ANDROID COVER] '
-          'FFmpeg no pudo extraer la portada.',
-        );
+        if (kDebugMode) {
+          print(
+            '[SONARA ANDROID COVER] '
+            'FFmpeg no pudo extraer la portada.',
+          );
+        }
 
         return null;
       }
@@ -146,11 +157,13 @@ class AndroidArtworkService {
       // ========================================================
 
       if (!await coverFile.exists()) {
-        print(
-          '[SONARA ANDROID COVER] '
-          'FFmpeg terminó correctamente, '
-          'pero no creó la portada.',
-        );
+        if (kDebugMode) {
+          print(
+            '[SONARA ANDROID COVER] '
+            'FFmpeg terminó correctamente, '
+            'pero no creó la portada.',
+          );
+        }
 
         return null;
       }
@@ -165,10 +178,12 @@ class AndroidArtworkService {
         return null;
       }
 
-      print(
-        '[SONARA ANDROID COVER] '
-        'Portada creada: $coverPath',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA ANDROID COVER] '
+          'Portada creada: $coverPath',
+        );
+      }
 
       // ========================================================
       // LIMPIAR VERSIONES ANTERIORES
@@ -178,11 +193,13 @@ class AndroidArtworkService {
 
       return coverPath;
     } catch (error) {
-      print(
-        '[SONARA ANDROID COVER] '
-        'Error extrayendo portada: '
-        '$error',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA ANDROID COVER] '
+          'Error extrayendo portada: '
+          '$error',
+        );
+      }
 
       return null;
     }
@@ -216,19 +233,23 @@ class AndroidArtworkService {
         try {
           await entity.delete();
 
-          print(
-            '[SONARA ANDROID COVER CACHE] '
-            'Versión anterior eliminada: '
-            '${entity.path}',
-          );
+          if (kDebugMode) {
+            print(
+              '[SONARA ANDROID COVER CACHE] '
+              'Versión anterior eliminada: '
+              '${entity.path}',
+            );
+          }
         } catch (_) {}
       }
     } catch (error) {
-      print(
-        '[SONARA ANDROID COVER CACHE] '
-        'No se pudieron limpiar versiones antiguas: '
-        '$error',
-      );
+      if (kDebugMode) {
+        print(
+          '[SONARA ANDROID COVER CACHE] '
+          'No se pudieron limpiar versiones antiguas: '
+          '$error',
+        );
+      }
     }
   }
 

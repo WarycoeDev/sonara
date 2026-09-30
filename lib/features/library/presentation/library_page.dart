@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -17,8 +16,6 @@ import '../domain/models/song.dart';
 import 'library_playlist_page.dart';
 import 'playlist_dialogs.dart';
 import 'song_options.dart';
-
-import '../data/services/song_artwork_service.dart';
 
 enum LibraryCategory { songs, albums, artists, playlists, favorites }
 
@@ -40,7 +37,6 @@ class _LibraryPageState extends State<LibraryPage> {
   final LocalLibraryRepository _repository = LocalLibraryRepository();
   final PlaylistsRepository _playlistsRepository = PlaylistsRepository();
   final FavoritesRepository _favoritesRepository = FavoritesRepository();
-  final SongArtworkService _artworkService = const SongArtworkService();
 
   late final PlayerController _playerController;
 
@@ -113,69 +109,6 @@ class _LibraryPageState extends State<LibraryPage> {
   // ============================================================
   // ARTWORK
   // ============================================================
-
-  Future<void> _changeSongArtwork(Song song) async {
-    try {
-      final artworkBytes = await _artworkService.changeArtwork(
-        songPath: song.filePath,
-      );
-
-      if (artworkBytes == null) {
-        return;
-      }
-
-      final audioFile = File(song.filePath);
-
-      if (!await audioFile.exists()) {
-        throw Exception('No se encontró el archivo de audio.');
-      }
-
-      final stat = await audioFile.stat();
-
-      final updatedSong = song.copyWith(
-        coverPath: null,
-        coverBytes: artworkBytes,
-        fileSize: stat.size,
-        fileLastModified: stat.modified.millisecondsSinceEpoch,
-      );
-
-      final updatedSongs = List<Song>.from(_songs);
-
-      final index = updatedSongs.indexWhere((item) => item.id == song.id);
-
-      if (index == -1) {
-        return;
-      }
-
-      updatedSongs[index] = updatedSong;
-
-      _updateLibrary(updatedSongs);
-
-      _playerController.syncLibrarySongs(updatedSongs);
-
-      if (!mounted) {
-        return;
-      }
-
-      setState(() {});
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Carátula actualizada correctamente.')),
-      );
-    } catch (error, stackTrace) {
-      debugPrint('[SONARA ARTWORK] Error cambiando carátula: $error');
-
-      debugPrintStack(stackTrace: stackTrace);
-
-      if (!mounted) {
-        return;
-      }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('No se pudo cambiar la carátula: $error')),
-      );
-    }
-  }
 
   void _handlePlayerChanged() {
     if (!mounted) {
@@ -787,6 +720,7 @@ class _LibraryPageState extends State<LibraryPage> {
     return Scaffold(
       backgroundColor: theme.scaffoldBackgroundColor,
       body: CustomScrollView(
+        // ignore: deprecated_member_use
         cacheExtent: 500,
         slivers: [
           SliverPadding(
@@ -1045,6 +979,7 @@ Future<T?> _showAnchoredMenu<T>({
     shape: RoundedRectangleBorder(
       borderRadius: BorderRadius.circular(20),
       side: BorderSide(
+        // ignore: deprecated_member_use
         color: Theme.of(context).colorScheme.outlineVariant.withOpacity(0.45),
       ),
     ),
@@ -1709,6 +1644,7 @@ class _FavoritesSliverList extends StatelessWidget {
           const SliverToBoxAdapter(child: SizedBox(height: 12)),
           SliverReorderableList(
             itemCount: songs.length,
+            // ignore: deprecated_member_use
             onReorder: onReorder,
             itemBuilder: (context, index) {
               final song = songs[index];

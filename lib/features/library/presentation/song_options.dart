@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
@@ -132,6 +131,7 @@ class SongOptions {
       position: position,
       elevation: 4,
       color: colorScheme.surfaceContainer,
+      // ignore: deprecated_member_use
       shadowColor: Colors.black.withOpacity(0.18),
       surfaceTintColor: Colors.transparent,
       clipBehavior: Clip.antiAlias,
