@@ -3,7 +3,8 @@ import 'dart:io';
 import 'package:ffmpeg_kit_flutter_new/ffmpeg_kit.dart';
 import 'package:ffmpeg_kit_flutter_new/return_code.dart';
 import 'package:flutter/foundation.dart';
-import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
+import 'package:sonara/core/services/sonara_storage_service.dart';
 
 class AndroidArtworkService {
   Future<String?> extractCover({
@@ -28,22 +29,11 @@ class AndroidArtworkService {
       }
 
       // ========================================================
-      // DIRECTORIO DE CACHE
+      // DIRECTORIO DE CACHÉ
       // ========================================================
 
-      final temporaryDirectory = await getTemporaryDirectory();
-
-      final artworkDirectory = Directory(
-        '${temporaryDirectory.path}'
-        '${Platform.pathSeparator}'
-        'sonara'
-        '${Platform.pathSeparator}'
-        'artwork',
-      );
-
-      if (!await artworkDirectory.exists()) {
-        await artworkDirectory.create(recursive: true);
-      }
+      final artworkDirectory =
+          await SonaraStorageService.getArtworkCacheDirectory();
 
       // ========================================================
       // DATOS DEL ARCHIVO
@@ -56,22 +46,22 @@ class AndroidArtworkService {
           (await audioFile.stat()).modified.millisecondsSinceEpoch;
 
       // ========================================================
-      // CACHE VERSIONADO
+      // CACHÉ VERSIONADO
       // ========================================================
 
       final songHash = _simpleHash(songId);
 
       final cacheKey = '${songHash}_${actualSize}_$actualModified';
 
-      final coverPath =
-          '${artworkDirectory.path}'
-          '${Platform.pathSeparator}'
-          '$cacheKey.sonara-cover.jpg';
+      final coverPath = p.join(
+        artworkDirectory.path,
+        '$cacheKey.sonara-cover.jpg',
+      );
 
       final coverFile = File(coverPath);
 
       // ========================================================
-      // USAR CACHE EXISTENTE
+      // USAR CACHÉ EXISTENTE
       // ========================================================
 
       if (!forceRefresh && await coverFile.exists()) {
@@ -91,7 +81,7 @@ class AndroidArtworkService {
       }
 
       // ========================================================
-      // SI forceRefresh, ELIMINAR VERSION ACTUAL
+      // SI forceRefresh, ELIMINAR VERSIÓN ACTUAL
       // ========================================================
 
       if (forceRefresh) {
@@ -122,10 +112,10 @@ class AndroidArtworkService {
         );
       }
 
-      final command = [
+      final arguments = [
         '-y',
         '-i',
-        _quoteArgument(filePath),
+        filePath,
         '-map',
         '0:v:0',
         '-frames:v',
@@ -134,10 +124,10 @@ class AndroidArtworkService {
         'mjpeg',
         '-q:v',
         '2',
-        _quoteArgument(coverPath),
-      ].join(' ');
+        coverPath,
+      ];
 
-      final session = await FFmpegKit.execute(command);
+      final session = await FFmpegKit.executeWithArguments(arguments);
 
       final returnCode = await session.getReturnCode();
 
@@ -224,7 +214,7 @@ class AndroidArtworkService {
           continue;
         }
 
-        final fileName = entity.uri.pathSegments.last;
+        final fileName = p.basename(entity.path);
 
         if (!fileName.startsWith('${songHash}_')) {
           continue;
@@ -267,13 +257,5 @@ class AndroidArtworkService {
     }
 
     return hash.toRadixString(16);
-  }
-
-  // ============================================================
-  // QUOTE FFmpeg
-  // ============================================================
-
-  String _quoteArgument(String value) {
-    return "'${value.replaceAll("'", "'\\''")}'";
   }
 }

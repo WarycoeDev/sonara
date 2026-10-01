@@ -7,7 +7,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:id3_codec/id3_codec.dart';
 import 'package:image/image.dart' as img;
-import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
+import 'package:sonara/core/services/sonara_storage_service.dart';
 
 import '../../../library/domain/models/song.dart';
 import 'youtube_search_service.dart';
@@ -122,11 +123,11 @@ class YouTubeDownloadService {
 
     final processId = 'sonara_audio_${DateTime.now().microsecondsSinceEpoch}';
 
-    final outputFile = File(
-      '${destinationDirectory.path}'
-      '${Platform.pathSeparator}'
+    final outputFilePath = p.join(
+      destinationDirectory.path,
       '$sanitizedFileName.mp3',
     );
+    final outputFile = File(outputFilePath);
 
     if (await outputFile.exists()) {
       await outputFile.delete();
@@ -257,7 +258,7 @@ class YouTubeDownloadService {
             .toList();
 
         final matchingFiles = files.where((file) {
-          final name = file.uri.pathSegments.last.toLowerCase();
+          final name = p.basename(file.path).toLowerCase();
 
           return name == '$sanitizedFileName.mp3'.toLowerCase();
         }).toList();
@@ -447,70 +448,13 @@ class YouTubeDownloadService {
       return cached;
     }
 
-    if (Platform.isAndroid) {
-      final externalDirectory = await getExternalStorageDirectory();
-
-      if (externalDirectory == null) {
-        throw Exception(
-          'No se pudo acceder al almacenamiento externo de Sonara.',
-        );
-      }
-
-      final directory = Directory(
-        '${externalDirectory.path}'
-        '${Platform.pathSeparator}'
-        'Music',
-      );
-
-      if (!await directory.exists()) {
-        await directory.create(recursive: true);
-      }
-
-      _downloadDirectory = directory;
-
-      debugPrint(
-        '[YouTubeDownload] Almacenamiento temporal Android: '
-        '${directory.path}',
-      );
-
-      return directory;
-    }
-
-    if (Platform.isLinux) {
-      final home = Platform.environment['HOME'];
-
-      if (home != null && home.isNotEmpty) {
-        final directory = Directory('$home${Platform.pathSeparator}Music');
-
-        _downloadDirectory = directory;
-
-        return directory;
-      }
-    }
-
-    if (Platform.isWindows) {
-      final userProfile = Platform.environment['USERPROFILE'];
-
-      if (userProfile != null && userProfile.isNotEmpty) {
-        final directory = Directory(
-          '$userProfile${Platform.pathSeparator}Music',
-        );
-
-        _downloadDirectory = directory;
-
-        return directory;
-      }
-    }
-
-    final documentsDirectory = await getApplicationDocumentsDirectory();
-
-    final directory = Directory(
-      '${documentsDirectory.path}'
-      '${Platform.pathSeparator}'
-      'Music',
-    );
-
+    final directory = await SonaraStorageService.getDownloadsDirectory();
     _downloadDirectory = directory;
+
+    debugPrint(
+      '[YouTubeDownload] Almacenamiento temporal/descargas: '
+      '${directory.path}',
+    );
 
     return directory;
   }
@@ -518,15 +462,6 @@ class YouTubeDownloadService {
   // PUBLICAR EN MUSIC
 
   /// Publica el MP3 terminado en la carpeta pública Music de Android.
-  ///
-  /// Android 10+:
-  ///
-  ///     MediaStore
-  ///     RELATIVE_PATH = Music/
-  ///
-  /// Android anterior:
-  ///
-  ///     /storage/emulated/0/Music/
   Future<String> _publishToPublicMusic({
     required File sourceFile,
     required String fileName,
@@ -594,17 +529,8 @@ class YouTubeDownloadService {
       return cached;
     }
 
-    final supportDirectory = await getApplicationSupportDirectory();
-
-    final cacheDirectory = Directory(
-      '${supportDirectory.path}'
-      '${Platform.pathSeparator}'
-      'yt-dlp-cache',
-    );
-
-    if (!await cacheDirectory.exists()) {
-      await cacheDirectory.create(recursive: true);
-    }
+    final cacheDirectory =
+        await SonaraStorageService.getYoutubeCacheDirectory();
 
     _extractorCacheDirectory = cacheDirectory;
 
@@ -714,7 +640,7 @@ class YouTubeDownloadService {
 
     final side = source.width;
 
-    final offsetY = ((source.height - side) / 2).round();
+    final offsetY = ((source.width - side) / 2).round();
 
     return img.copyCrop(source, x: 0, y: offsetY, width: side, height: side);
   }

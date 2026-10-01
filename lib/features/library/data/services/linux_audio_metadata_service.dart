@@ -1,7 +1,8 @@
 import 'dart:convert';
 import 'dart:io';
 
-import 'package:path_provider/path_provider.dart';
+import 'package:path/path.dart' as p;
+import 'package:sonara/core/services/sonara_storage_service.dart';
 
 class LinuxAudioMetadata {
   final String? artist;
@@ -35,16 +36,8 @@ class LinuxAudioMetadataService {
       ]);
 
       if (result.exitCode != 0) {
-        print(
-          '[SONARA COVER] '
-          'ffprobe fallo para: $filePath',
-        );
-
-        print(
-          '[SONARA COVER] '
-          'stderr: ${result.stderr}',
-        );
-
+        print('[SONARA COVER] ffprobe falló para: $filePath');
+        print('[SONARA COVER] stderr: ${result.stderr}');
         return const LinuxAudioMetadata(duration: Duration.zero);
       }
 
@@ -60,7 +53,6 @@ class LinuxAudioMetadataService {
       final tags = format['tags'] as Map<String, dynamic>?;
 
       final artist = tags?['artist']?.toString();
-
       final album = tags?['album']?.toString();
 
       final durationValue =
@@ -75,11 +67,7 @@ class LinuxAudioMetadataService {
       );
 
       print('[SONARA COVER] $filePath');
-
-      print(
-        '[SONARA COVER] '
-        'portada: $coverPath',
-      );
+      print('[SONARA COVER] portada: $coverPath');
 
       return LinuxAudioMetadata(
         artist: artist,
@@ -88,15 +76,8 @@ class LinuxAudioMetadataService {
         coverPath: coverPath,
       );
     } catch (error) {
-      print(
-        '[SONARA COVER] '
-        'Error leyendo metadata de $filePath',
-      );
-
-      print(
-        '[SONARA COVER] '
-        '$error',
-      );
+      print('[SONARA COVER] Error leyendo metadata de $filePath');
+      print('[SONARA COVER] $error');
 
       return const LinuxAudioMetadata(duration: Duration.zero);
     }
@@ -111,27 +92,12 @@ class LinuxAudioMetadataService {
       final audioFile = File(filePath);
 
       if (!await audioFile.exists()) {
-        print(
-          '[SONARA COVER] '
-          'El archivo no existe: $filePath',
-        );
-
+        print('[SONARA COVER] El archivo no existe: $filePath');
         return null;
       }
 
-      final supportDirectory = await getTemporaryDirectory();
-
-      final artworkDirectory = Directory(
-        '${supportDirectory.path}'
-        '${Platform.pathSeparator}'
-        'sonara'
-        '${Platform.pathSeparator}'
-        'artwork',
-      );
-
-      if (!await artworkDirectory.exists()) {
-        await artworkDirectory.create(recursive: true);
-      }
+      final artworkDirectory =
+          await SonaraStorageService.getArtworkCacheDirectory();
 
       final actualSize = fileSize ?? await audioFile.length();
 
@@ -143,27 +109,22 @@ class LinuxAudioMetadataService {
 
       final cacheKey = '${pathHash}_${actualSize}_$actualModified';
 
-      final coverPath =
-          '${artworkDirectory.path}'
-          '${Platform.pathSeparator}'
-          '$cacheKey.sonara-cover.jpg';
+      final coverPath = p.join(
+        artworkDirectory.path,
+        '$cacheKey.sonara-cover.jpg',
+      );
 
       final coverFile = File(coverPath);
 
       // =======================================================================
-      // CACHE VÁLIDO
+      // CACHÉ VÁLIDO
       // =======================================================================
 
       if (await coverFile.exists()) {
         final length = await coverFile.length();
 
         if (length > 0) {
-          print(
-            '[SONARA COVER] '
-            'Usando portada cacheada: '
-            '$coverPath',
-          );
-
+          print('[SONARA COVER] Usando portada cacheada: $coverPath');
           return coverPath;
         }
 
@@ -176,11 +137,7 @@ class LinuxAudioMetadataService {
       // EXTRAER NUEVA CARÁTULA
       // =======================================================================
 
-      print(
-        '[SONARA COVER] '
-        'Extrayendo nueva portada: '
-        '$filePath',
-      );
+      print('[SONARA COVER] Extrayendo nueva portada: $filePath');
 
       final result = await Process.run('ffmpeg', [
         '-y',
@@ -198,28 +155,15 @@ class LinuxAudioMetadataService {
       ]);
 
       if (result.exitCode != 0) {
-        print(
-          '[SONARA COVER] '
-          'ffmpeg fallo para: $filePath',
-        );
-
-        print(
-          '[SONARA COVER] '
-          'stderr:',
-        );
-
-        print(result.stderr);
-
+        print('[SONARA COVER] ffmpeg falló para: $filePath');
+        print('[SONARA COVER] stderr:\n${result.stderr}');
         return null;
       }
 
       if (!await coverFile.exists()) {
         print(
-          '[SONARA COVER] '
-          'ffmpeg terminó correctamente, '
-          'pero no creó la portada.',
+          '[SONARA COVER] ffmpeg terminó correctamente, pero no creó la portada.',
         );
-
         return null;
       }
 
@@ -229,25 +173,17 @@ class LinuxAudioMetadataService {
         try {
           await coverFile.delete();
         } catch (_) {}
-
         return null;
       }
 
-      print(
-        '[SONARA COVER] '
-        'Portada creada: $coverPath',
-      );
+      print('[SONARA COVER] Portada creada: $coverPath');
 
       // Limpieza de versiones anteriores del mismo archivo.
       await _removeOldVersions(artworkDirectory, pathHash, coverFile);
 
       return coverPath;
     } catch (error) {
-      print(
-        '[SONARA COVER] '
-        'Error extrayendo portada: $error',
-      );
-
+      print('[SONARA COVER] Error extrayendo portada: $error');
       return null;
     }
   }
@@ -267,7 +203,7 @@ class LinuxAudioMetadataService {
           continue;
         }
 
-        final fileName = entity.uri.pathSegments.last;
+        final fileName = p.basename(entity.path);
 
         if (!fileName.startsWith('${pathHash}_')) {
           continue;
@@ -277,17 +213,13 @@ class LinuxAudioMetadataService {
           await entity.delete();
 
           print(
-            '[SONARA COVER CACHE] '
-            'Versión anterior eliminada: '
-            '${entity.path}',
+            '[SONARA COVER CACHE] Versión anterior eliminada: ${entity.path}',
           );
         } catch (_) {}
       }
     } catch (error) {
       print(
-        '[SONARA COVER CACHE] '
-        'No se pudieron limpiar versiones antiguas: '
-        '$error',
+        '[SONARA COVER CACHE] No se pudieron limpiar versiones antiguas: $error',
       );
     }
   }
@@ -297,7 +229,6 @@ class LinuxAudioMetadataService {
 
     for (final codeUnit in value.codeUnits) {
       hash ^= codeUnit;
-
       hash = (hash * 0x01000193) & 0xffffffff;
     }
 
@@ -310,22 +241,17 @@ Future<bool> deleteEmbeddedArtwork(String filePath) async {
     final audioFile = File(filePath);
 
     if (!await audioFile.exists()) {
-      print(
-        '[SONARA ARTWORK DELETE] '
-        'El archivo no existe: $filePath',
-      );
-
+      print('[SONARA ARTWORK DELETE] El archivo no existe: $filePath');
       return false;
     }
 
     final directory = audioFile.parent;
+    final fileName = p.basename(filePath);
 
-    final fileName = audioFile.uri.pathSegments.last;
-
-    final temporaryPath =
-        '${directory.path}'
-        '${Platform.pathSeparator}'
-        '.$fileName.sonara-no-artwork.tmp';
+    final temporaryPath = p.join(
+      directory.path,
+      '.$fileName.sonara-no-artwork.tmp',
+    );
 
     final temporaryFile = File(temporaryPath);
 
@@ -339,26 +265,7 @@ Future<bool> deleteEmbeddedArtwork(String filePath) async {
       } catch (_) {}
     }
 
-    print(
-      '[SONARA ARTWORK DELETE] '
-      'Eliminando artwork embebido: $filePath',
-    );
-
-    // -----------------------------------------------------------------------
-    // IMPORTANTE:
-    //
-    // -map 0:a
-    //      Conserva solamente el stream de audio.
-    //
-    // -map_metadata 0
-    //      Conserva los metadatos normales del audio.
-    //
-    // -c:a copy
-    //      NO recodifica el audio.
-    //
-    // El artwork embebido deja de formar parte del archivo porque
-    // ya no copiamos el stream/metadata de imagen.
-    // -----------------------------------------------------------------------
+    print('[SONARA ARTWORK DELETE] Eliminando artwork embebido: $filePath');
 
     final result = await Process.run('ffmpeg', [
       '-y',
@@ -376,11 +283,7 @@ Future<bool> deleteEmbeddedArtwork(String filePath) async {
     ]);
 
     if (result.exitCode != 0) {
-      print(
-        '[SONARA ARTWORK DELETE] '
-        'ffmpeg falló.',
-      );
-
+      print('[SONARA ARTWORK DELETE] ffmpeg falló.');
       print(result.stderr);
 
       if (await temporaryFile.exists()) {
@@ -394,20 +297,15 @@ Future<bool> deleteEmbeddedArtwork(String filePath) async {
 
     if (!await temporaryFile.exists()) {
       print(
-        '[SONARA ARTWORK DELETE] '
-        'ffmpeg terminó pero no creó el archivo temporal.',
+        '[SONARA ARTWORK DELETE] ffmpeg terminó pero no creó el archivo temporal.',
       );
-
       return false;
     }
 
     final temporaryLength = await temporaryFile.length();
 
     if (temporaryLength <= 0) {
-      print(
-        '[SONARA ARTWORK DELETE] '
-        'El archivo temporal está vacío.',
-      );
+      print('[SONARA ARTWORK DELETE] El archivo temporal está vacío.');
 
       try {
         await temporaryFile.delete();
@@ -420,10 +318,7 @@ Future<bool> deleteEmbeddedArtwork(String filePath) async {
     // Reemplazar archivo original.
     // -----------------------------------------------------------------------
 
-    final backupPath =
-        '${directory.path}'
-        '${Platform.pathSeparator}'
-        '.$fileName.sonara-backup';
+    final backupPath = p.join(directory.path, '.$fileName.sonara-backup');
 
     final backupFile = File(backupPath);
 
@@ -444,15 +339,9 @@ Future<bool> deleteEmbeddedArtwork(String filePath) async {
           await backupFile.delete();
         }
       } catch (error) {
-        // ---------------------------------------------------------------------
-        // Rollback:
-        // Si no pudimos colocar el nuevo archivo, restauramos el original.
-        // ---------------------------------------------------------------------
-
+        // Rollback
         print(
-          '[SONARA ARTWORK DELETE] '
-          'Error reemplazando archivo. Restaurando original: '
-          '$error',
+          '[SONARA ARTWORK DELETE] Error reemplazando archivo. Restaurando original: $error',
         );
 
         if (await audioFile.exists()) {
@@ -475,9 +364,7 @@ Future<bool> deleteEmbeddedArtwork(String filePath) async {
       }
     } catch (error) {
       print(
-        '[SONARA ARTWORK DELETE] '
-        'No se pudo reemplazar el archivo original: '
-        '$error',
+        '[SONARA ARTWORK DELETE] No se pudo reemplazar el archivo original: $error',
       );
 
       if (await temporaryFile.exists()) {
@@ -489,18 +376,10 @@ Future<bool> deleteEmbeddedArtwork(String filePath) async {
       return false;
     }
 
-    print(
-      '[SONARA ARTWORK DELETE] '
-      'Artwork eliminado correctamente: $filePath',
-    );
-
+    print('[SONARA ARTWORK DELETE] Artwork eliminado correctamente: $filePath');
     return true;
   } catch (error, stackTrace) {
-    print(
-      '[SONARA ARTWORK DELETE] '
-      'Error eliminando artwork: $error',
-    );
-
+    print('[SONARA ARTWORK DELETE] Error eliminando artwork: $error');
     print(stackTrace);
 
     return false;
