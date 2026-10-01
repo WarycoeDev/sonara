@@ -7,10 +7,13 @@ import 'android_music_service.dart';
 // Calcula la ganancia de sonoridad de una pista.
 //
 // Android:
-// - Delega el cálculo al código nativo.
+// - Delega el análisis al código nativo.
 //
 // Linux/Desktop:
-// - Usa ffmpeg + filtro ebur128.
+// - Usa ffmpeg + ebur128.
+//
+// Objetivo de Sonara:
+// -18 LUFS.
 //
 // El resultado se guarda posteriormente en Song.volumeGain.
 
@@ -20,12 +23,12 @@ class ReplayGainService {
 
   final AndroidMusicService _androidMusicService;
 
+  // ============================================================
   // CONFIGURACIÓN
+  // ============================================================
 
-  /// Objetivo de sonoridad utilizado por Sonara.
-  static const double _targetLoudnessLufs = -18.0;
+  static const double targetLoudnessLufs = -18.0;
 
-  /// Límites de seguridad.
   static const double _minValidGainDb = -30.0;
   static const double _maxValidGainDb = 30.0;
 
@@ -33,7 +36,9 @@ class ReplayGainService {
     r'I:\s*(-?\d+(?:\.\d+)?)\s*LUFS',
   );
 
+  // ============================================================
   // CALCULAR GANANCIA
+  // ============================================================
 
   Future<double?> calculateTrackGain(String filePath) async {
     try {
@@ -56,7 +61,9 @@ class ReplayGainService {
     }
   }
 
+  // ============================================================
   // FFMPEG
+  // ============================================================
 
   Future<double?> _calculateViaFfmpeg(String filePath) async {
     final file = File(filePath);
@@ -99,16 +106,7 @@ class ReplayGainService {
         return null;
       }
 
-      /*
-       * Ejemplo:
-       *
-       * pista = -12 LUFS
-       * objetivo = -18 LUFS
-       *
-       * gain = -18 - (-12)
-       *      = -6 dB
-       */
-      final gain = _targetLoudnessLufs - integratedLoudness;
+      final gain = targetLoudnessLufs - integratedLoudness;
 
       return gain;
     } on ProcessException catch (error) {
@@ -129,7 +127,9 @@ class ReplayGainService {
     }
   }
 
+  // ============================================================
   // PARSEAR LUFS
+  // ============================================================
 
   double? _parseIntegratedLoudness(String ffmpegOutput) {
     final matches = _integratedLoudnessPattern
@@ -140,11 +140,6 @@ class ReplayGainService {
       return null;
     }
 
-    /*
-     * ebur128 muestra distintos valores I durante el análisis.
-     *
-     * El último corresponde al valor integrado final.
-     */
     final value = matches.last.group(1);
 
     if (value == null) {
@@ -154,11 +149,22 @@ class ReplayGainService {
     return double.tryParse(value);
   }
 
+  // ============================================================
   // VALIDAR
+  // ============================================================
 
   double? _sanitize(double? gainDb) {
     if (gainDb == null || gainDb.isNaN || gainDb.isInfinite) {
       return null;
+    }
+
+    if (gainDb < _minValidGainDb || gainDb > _maxValidGainDb) {
+      print(
+        '[SONARA REPLAYGAIN] '
+        'Ganancia fuera del rango esperado: '
+        '${gainDb.toStringAsFixed(2)} dB. '
+        'Se aplicará clamp.',
+      );
     }
 
     return gainDb.clamp(_minValidGainDb, _maxValidGainDb).toDouble();

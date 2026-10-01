@@ -29,52 +29,29 @@ import kotlin.math.tan
 
 class MainActivity : AudioServiceActivity() {
 
-    private val channelName =
-        "com.sonara/music"
+    private val channelName = "com.sonara/music"
 
-    private val audioPermissionRequestCode =
-        1001
+    private val audioPermissionRequestCode = 1001
 
-    // =========================================================================
-    // MEDIASTORE WRITE REQUEST
-    // =========================================================================
+    private val mediaStoreWriteRequestCode = 2001
 
-    private val mediaStoreWriteRequestCode =
-        2001
+    private var pendingMediaStoreResult: MethodChannel.Result? = null
+    private var pendingMediaStoreUri: Uri? = null
+    private var pendingMediaStoreTempPath: String? = null
 
-    private var pendingMediaStoreResult:
-        MethodChannel.Result? = null
-
-    private var pendingMediaStoreUri:
-        Uri? = null
-
-    private var pendingMediaStoreTempPath:
-        String? = null
-
-    // =========================================================================
-    // EXTENSIONES
-    // =========================================================================
-
-    private val supportedExtensions =
-        setOf(
-            "mp3",
-            "m4a",
-            "aac",
-            "wav",
-            "flac",
-            "ogg"
-        )
-
-    // =========================================================================
-    // FLUTTER ENGINE
-    // =========================================================================
+    private val supportedExtensions = setOf(
+        "mp3",
+        "m4a",
+        "aac",
+        "wav",
+        "flac",
+        "ogg"
+    )
 
     override fun configureFlutterEngine(
         flutterEngine: FlutterEngine
     ) {
-        super.configureFlutterEngine(
-            flutterEngine
-        )
+        super.configureFlutterEngine(flutterEngine)
 
         MethodChannel(
             flutterEngine.dartExecutor.binaryMessenger,
@@ -83,41 +60,21 @@ class MainActivity : AudioServiceActivity() {
 
             when (call.method) {
 
-                // =============================================================
-                // PERMISO
-                // =============================================================
-
                 "requestAudioPermission" -> {
 
                     if (checkStoragePermission()) {
-
                         result.success(true)
-
                     } else {
-
                         requestStoragePermission()
-
-                        result.success(
-                            checkStoragePermission()
-                        )
+                        result.success(checkStoragePermission())
                     }
                 }
-
-                // =============================================================
-                // ESCANEO DE BIBLIOTECA
-                // SOLO MUSIC + DOWNLOAD
-                // =============================================================
 
                 "getLibraryFiles" -> {
 
                     try {
-
-                        result.success(
-                            getLibraryFiles()
-                        )
-
+                        result.success(getLibraryFiles())
                     } catch (exception: Exception) {
-
                         result.error(
                             "LIBRARY_FILES_QUERY_ERROR",
                             exception.message,
@@ -126,38 +83,25 @@ class MainActivity : AudioServiceActivity() {
                     }
                 }
 
-                // =============================================================
-                // METADATOS
-                // =============================================================
-
                 "getSongMetadata" -> {
 
                     val filePath =
-                        call.argument<String>(
-                            "filePath"
-                        )
+                        call.argument<String>("filePath")
 
                     if (filePath.isNullOrEmpty()) {
-
                         result.error(
                             "INVALID_FILE_PATH",
                             "filePath es obligatorio.",
                             null
                         )
-
                         return@setMethodCallHandler
                     }
 
                     try {
-
                         result.success(
-                            getSongMetadata(
-                                File(filePath)
-                            )
+                            getSongMetadata(File(filePath))
                         )
-
                     } catch (exception: Exception) {
-
                         result.error(
                             "SONG_METADATA_ERROR",
                             exception.message,
@@ -166,47 +110,34 @@ class MainActivity : AudioServiceActivity() {
                     }
                 }
 
-                // =============================================================
-                // PUBLICAR AUDIO EN MUSIC
-                // =============================================================
-
                 "publishAudioToMusic" -> {
 
                     val sourcePath =
-                        call.argument<String>(
-                            "sourcePath"
-                        )
+                        call.argument<String>("sourcePath")
 
                     val fileName =
-                        call.argument<String>(
-                            "fileName"
-                        )
+                        call.argument<String>("fileName")
 
                     if (
                         sourcePath.isNullOrEmpty() ||
                         fileName.isNullOrEmpty()
                     ) {
-
                         result.error(
                             "INVALID_AUDIO_DATA",
                             "sourcePath y fileName son obligatorios.",
                             null
                         )
-
                         return@setMethodCallHandler
                     }
 
                     try {
-
                         result.success(
                             publishAudioToMusic(
                                 sourcePath = sourcePath,
                                 fileName = fileName
                             )
                         )
-
                     } catch (exception: Exception) {
-
                         result.error(
                             "PUBLISH_AUDIO_ERROR",
                             exception.message,
@@ -215,33 +146,23 @@ class MainActivity : AudioServiceActivity() {
                     }
                 }
 
-                // =============================================================
-                // REEMPLAZAR AUDIO EN MEDIASTORE
-                // =============================================================
-
                 "replaceMediaStoreAudio" -> {
 
                     val sourcePath =
-                        call.argument<String>(
-                            "sourcePath"
-                        )
+                        call.argument<String>("sourcePath")
 
                     val temporaryPath =
-                        call.argument<String>(
-                            "temporaryPath"
-                        )
+                        call.argument<String>("temporaryPath")
 
                     if (
                         sourcePath.isNullOrEmpty() ||
                         temporaryPath.isNullOrEmpty()
                     ) {
-
                         result.error(
                             "INVALID_AUDIO_REPLACEMENT_DATA",
                             "sourcePath y temporaryPath son obligatorios.",
                             null
                         )
-
                         return@setMethodCallHandler
                     }
 
@@ -252,25 +173,17 @@ class MainActivity : AudioServiceActivity() {
                     )
                 }
 
-                // =============================================================
-                // REPLAYGAIN
-                // =============================================================
-
                 "calculateTrackGain" -> {
 
                     val filePath =
-                        call.argument<String>(
-                            "filePath"
-                        )
+                        call.argument<String>("filePath")
 
                     if (filePath.isNullOrEmpty()) {
-
                         result.error(
                             "INVALID_FILE_PATH",
                             "filePath es obligatorio.",
                             null
                         )
-
                         return@setMethodCallHandler
                     }
 
@@ -278,21 +191,27 @@ class MainActivity : AudioServiceActivity() {
 
                         val gain =
                             try {
+                                android.util.Log.d(
+                                    "SONARA_REPLAYGAIN",
+                                    "Analizando: ${File(filePath).name}"
+                                )
 
                                 ReplayGainCalculator
                                     .calculateTrackGain(
                                         File(filePath)
                                     )
+                            } catch (exception: Exception) {
 
-                            } catch (
-                                exception: Exception
-                            ) {
+                                android.util.Log.e(
+                                    "SONARA_REPLAYGAIN",
+                                    "Error calculando gain.",
+                                    exception
+                                )
 
                                 null
                             }
 
                         runOnUiThread {
-
                             result.success(gain)
                         }
 
@@ -300,7 +219,6 @@ class MainActivity : AudioServiceActivity() {
                 }
 
                 else -> {
-
                     result.notImplemented()
                 }
             }
@@ -308,7 +226,7 @@ class MainActivity : AudioServiceActivity() {
     }
 
     // =========================================================================
-    // MEDIASTORE: REEMPLAZAR AUDIO
+    // MEDIASTORE
     // =========================================================================
 
     private fun replaceMediaStoreAudio(
@@ -317,39 +235,27 @@ class MainActivity : AudioServiceActivity() {
         result: MethodChannel.Result
     ) {
 
-        val temporaryFile =
-            File(temporaryPath)
+        val temporaryFile = File(temporaryPath)
 
         if (!temporaryFile.exists()) {
-
             result.error(
                 "TEMPORARY_FILE_NOT_FOUND",
                 "El archivo temporal no existe: $temporaryPath",
                 null
             )
-
             return
         }
 
         if (!temporaryFile.isFile) {
-
             result.error(
                 "TEMPORARY_FILE_INVALID",
                 "La ruta temporal no corresponde a un archivo.",
                 null
             )
-
             return
         }
 
-        // =====================================================================
-        // ANDROID 9 E INFERIORES
-        // =====================================================================
-
-        if (
-            Build.VERSION.SDK_INT <
-            Build.VERSION_CODES.Q
-        ) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) {
 
             replaceAudioPreAndroid10(
                 sourcePath = sourcePath,
@@ -360,25 +266,17 @@ class MainActivity : AudioServiceActivity() {
             return
         }
 
-        // =====================================================================
-        // ANDROID 10+
-        // =====================================================================
-
         try {
 
             val mediaUri =
-                findMediaStoreAudioUri(
-                    sourcePath
-                )
+                findMediaStoreAudioUri(sourcePath)
 
             if (mediaUri == null) {
-
                 result.error(
                     "MEDIASTORE_URI_NOT_FOUND",
                     "No se encontró el audio en MediaStore: $sourcePath",
                     null
                 )
-
                 return
             }
 
@@ -403,21 +301,15 @@ class MainActivity : AudioServiceActivity() {
 
                 result.success(true)
 
-            } catch (
-                securityException: SecurityException
-            ) {
+            } catch (securityException: SecurityException) {
 
                 android.util.Log.w(
                     "SONARA_MEDIASTORE",
-                    "No hay permiso para modificar $mediaUri. "
-                            + "Solicitando autorización.",
+                    "No hay permiso para modificar $mediaUri.",
                     securityException
                 )
 
-                if (
-                    Build.VERSION.SDK_INT >=
-                    Build.VERSION_CODES.R
-                ) {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
 
                     requestMediaStoreWritePermission(
                         mediaUri = mediaUri,
@@ -452,35 +344,27 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    // =========================================================================
-    // BUSCAR URI DE MEDIASTORE
-    // =========================================================================
-
     private fun findMediaStoreAudioUri(
         sourcePath: String
     ): Uri? {
 
-        val resolver =
-            contentResolver
+        val resolver = contentResolver
 
         val collection =
             MediaStore.Audio.Media.getContentUri(
                 MediaStore.VOLUME_EXTERNAL_PRIMARY
             )
 
-        val projection =
-            arrayOf(
-                MediaStore.Audio.Media._ID,
-                MediaStore.Audio.Media.DATA
-            )
+        val projection = arrayOf(
+            MediaStore.Audio.Media._ID,
+            MediaStore.Audio.Media.DATA
+        )
 
         val selection =
             "${MediaStore.Audio.Media.DATA} = ?"
 
         val selectionArgs =
-            arrayOf(
-                sourcePath
-            )
+            arrayOf(sourcePath)
 
         resolver.query(
             collection,
@@ -502,9 +386,7 @@ class MainActivity : AudioServiceActivity() {
             if (cursor.moveToFirst()) {
 
                 val id =
-                    cursor.getLong(
-                        idColumn
-                    )
+                    cursor.getLong(idColumn)
 
                 return Uri.withAppendedPath(
                     collection,
@@ -516,17 +398,12 @@ class MainActivity : AudioServiceActivity() {
         return null
     }
 
-    // =========================================================================
-    // COPIAR TEMPORAL → MEDIASTORE
-    // =========================================================================
-
     private fun copyTemporaryFileToMediaStore(
         mediaUri: Uri,
         temporaryFile: File
     ) {
 
-        val resolver =
-            contentResolver
+        val resolver = contentResolver
 
         resolver.openOutputStream(
             mediaUri,
@@ -534,26 +411,19 @@ class MainActivity : AudioServiceActivity() {
         ).use { outputStream ->
 
             if (outputStream == null) {
-
                 throw IllegalStateException(
                     "MediaStore no pudo abrir el archivo para escritura."
                 )
             }
 
-            temporaryFile.inputStream().use {
-                inputStream ->
+            temporaryFile.inputStream().use { inputStream ->
 
-                val buffer =
-                    ByteArray(
-                        64 * 1024
-                    )
+                val buffer = ByteArray(64 * 1024)
 
                 while (true) {
 
                     val bytesRead =
-                        inputStream.read(
-                            buffer
-                        )
+                        inputStream.read(buffer)
 
                     if (bytesRead == -1) {
                         break
@@ -570,7 +440,6 @@ class MainActivity : AudioServiceActivity() {
             }
         }
 
-        // Actualizar fecha de modificación.
         try {
 
             val values =
@@ -590,13 +459,8 @@ class MainActivity : AudioServiceActivity() {
             )
 
         } catch (_: Exception) {
-            // El contenido ya fue reemplazado.
         }
     }
-
-    // =========================================================================
-    // SOLICITAR PERMISO PARA MODIFICAR MEDIASTORE
-    // =========================================================================
 
     private fun requestMediaStoreWritePermission(
         mediaUri: Uri,
@@ -623,14 +487,9 @@ class MainActivity : AudioServiceActivity() {
                     listOf(mediaUri)
                 )
 
-            pendingMediaStoreResult =
-                result
-
-            pendingMediaStoreUri =
-                mediaUri
-
-            pendingMediaStoreTempPath =
-                temporaryPath
+            pendingMediaStoreResult = result
+            pendingMediaStoreUri = mediaUri
+            pendingMediaStoreTempPath = temporaryPath
 
             android.util.Log.d(
                 "SONARA_MEDIASTORE",
@@ -648,14 +507,9 @@ class MainActivity : AudioServiceActivity() {
 
         } catch (exception: Exception) {
 
-            pendingMediaStoreResult =
-                null
-
-            pendingMediaStoreUri =
-                null
-
-            pendingMediaStoreTempPath =
-                null
+            pendingMediaStoreResult = null
+            pendingMediaStoreUri = null
+            pendingMediaStoreTempPath = null
 
             result.error(
                 "MEDIASTORE_WRITE_REQUEST_ERROR",
@@ -665,10 +519,6 @@ class MainActivity : AudioServiceActivity() {
             )
         }
     }
-
-    // =========================================================================
-    // RESULTADO DE CREATE_WRITE_REQUEST
-    // =========================================================================
 
     override fun onActivityResult(
         requestCode: Int,
@@ -689,23 +539,13 @@ class MainActivity : AudioServiceActivity() {
             return
         }
 
-        val result =
-            pendingMediaStoreResult
+        val result = pendingMediaStoreResult
+        val mediaUri = pendingMediaStoreUri
+        val temporaryPath = pendingMediaStoreTempPath
 
-        val mediaUri =
-            pendingMediaStoreUri
-
-        val temporaryPath =
-            pendingMediaStoreTempPath
-
-        pendingMediaStoreResult =
-            null
-
-        pendingMediaStoreUri =
-            null
-
-        pendingMediaStoreTempPath =
-            null
+        pendingMediaStoreResult = null
+        pendingMediaStoreUri = null
+        pendingMediaStoreTempPath = null
 
         if (
             result == null ||
@@ -715,34 +555,18 @@ class MainActivity : AudioServiceActivity() {
             return
         }
 
-        // =====================================================================
-        // USUARIO RECHAZÓ
-        // =====================================================================
-
         if (resultCode != RESULT_OK) {
 
-            android.util.Log.d(
-                "SONARA_MEDIASTORE",
-                "El usuario rechazó el permiso de escritura."
-            )
-
             result.success(false)
-
             return
         }
-
-        // =====================================================================
-        // USUARIO AUTORIZÓ
-        // =====================================================================
 
         Thread {
 
             try {
 
                 val temporaryFile =
-                    File(
-                        temporaryPath
-                    )
+                    File(temporaryPath)
 
                 if (!temporaryFile.exists()) {
 
@@ -765,30 +589,18 @@ class MainActivity : AudioServiceActivity() {
 
                 temporaryFile.delete()
 
-                android.util.Log.d(
-                    "SONARA_MEDIASTORE",
-                    "Audio reemplazado después de autorización."
-                )
-
                 runOnUiThread {
-
                     result.success(true)
                 }
 
             } catch (exception: Exception) {
-
-                android.util.Log.e(
-                    "SONARA_MEDIASTORE",
-                    "Error copiando después de autorización.",
-                    exception
-                )
 
                 runOnUiThread {
 
                     result.error(
                         "MEDIASTORE_REPLACE_AFTER_PERMISSION_ERROR",
                         exception.message
-                            ?: "Error reemplazando el audio después de autorización.",
+                            ?: "Error reemplazando el audio.",
                         null
                     )
                 }
@@ -796,10 +608,6 @@ class MainActivity : AudioServiceActivity() {
 
         }.start()
     }
-
-    // =========================================================================
-    // ANDROID 9 E INFERIORES
-    // =========================================================================
 
     private fun replaceAudioPreAndroid10(
         sourcePath: String,
@@ -809,11 +617,8 @@ class MainActivity : AudioServiceActivity() {
 
         try {
 
-            val sourceFile =
-                File(sourcePath)
-
-            val temporaryFile =
-                File(temporaryPath)
+            val sourceFile = File(sourcePath)
+            val temporaryFile = File(temporaryPath)
 
             if (!sourceFile.exists()) {
 
@@ -838,9 +643,7 @@ class MainActivity : AudioServiceActivity() {
             }
 
             val backupFile =
-                File(
-                    "$sourcePath.sonara-backup"
-                )
+                File("$sourcePath.sonara-backup")
 
             if (backupFile.exists()) {
                 backupFile.delete()
@@ -859,11 +662,7 @@ class MainActivity : AudioServiceActivity() {
 
             try {
 
-                if (
-                    !temporaryFile.renameTo(
-                        sourceFile
-                    )
-                ) {
+                if (!temporaryFile.renameTo(sourceFile)) {
 
                     throw IllegalStateException(
                         "No se pudo colocar el archivo temporal."
@@ -877,22 +676,16 @@ class MainActivity : AudioServiceActivity() {
             } catch (exception: Exception) {
 
                 try {
-
                     if (sourceFile.exists()) {
                         sourceFile.delete()
                     }
-
                 } catch (_: Exception) {
                 }
 
                 try {
-
                     if (backupFile.exists()) {
-                        backupFile.renameTo(
-                            sourceFile
-                        )
+                        backupFile.renameTo(sourceFile)
                     }
-
                 } catch (_: Exception) {
                 }
 
@@ -916,7 +709,7 @@ class MainActivity : AudioServiceActivity() {
     }
 
     // =========================================================================
-    // PUBLICAR AUDIO EN MUSIC
+    // PUBLICAR AUDIO
     // =========================================================================
 
     private fun publishAudioToMusic(
@@ -924,34 +717,23 @@ class MainActivity : AudioServiceActivity() {
         fileName: String
     ): String {
 
-        val sourceFile =
-            File(sourcePath)
+        val sourceFile = File(sourcePath)
 
         if (!sourceFile.exists()) {
-
             throw IllegalArgumentException(
                 "El archivo temporal no existe: $sourcePath"
             )
         }
 
         if (!sourceFile.isFile) {
-
             throw IllegalArgumentException(
                 "La ruta temporal no corresponde a un archivo."
             )
         }
 
-        val resolver =
-            contentResolver
+        val resolver = contentResolver
 
-        // =====================================================================
-        // ANDROID 10+
-        // =====================================================================
-
-        if (
-            Build.VERSION.SDK_INT >=
-            Build.VERSION_CODES.Q
-        ) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
 
             val audioCollection =
                 MediaStore.Audio.Media.getContentUri(
@@ -1004,26 +786,19 @@ class MainActivity : AudioServiceActivity() {
                 ).use { outputStream ->
 
                     if (outputStream == null) {
-
                         throw IllegalStateException(
-                            "No se pudo abrir el archivo de Music para escritura."
+                            "No se pudo abrir el archivo de Music."
                         )
                     }
 
-                    sourceFile.inputStream().use {
-                        inputStream ->
+                    sourceFile.inputStream().use { inputStream ->
 
-                        val buffer =
-                            ByteArray(
-                                64 * 1024
-                            )
+                        val buffer = ByteArray(64 * 1024)
 
                         while (true) {
 
                             val bytesRead =
-                                inputStream.read(
-                                    buffer
-                                )
+                                inputStream.read(buffer)
 
                             if (bytesRead == -1) {
                                 break
@@ -1067,23 +842,13 @@ class MainActivity : AudioServiceActivity() {
             } catch (exception: Exception) {
 
                 try {
-
-                    resolver.delete(
-                        uri,
-                        null,
-                        null
-                    )
-
+                    resolver.delete(uri, null, null)
                 } catch (_: Exception) {
                 }
 
                 throw exception
             }
         }
-
-        // =====================================================================
-        // ANDROID 9 E INFERIORES
-        // =====================================================================
 
         val musicDirectory =
             Environment.getExternalStoragePublicDirectory(
@@ -1100,11 +865,9 @@ class MainActivity : AudioServiceActivity() {
                 fileName
             )
 
-        sourceFile.inputStream().use {
-            inputStream ->
+        sourceFile.inputStream().use { inputStream ->
 
-            destinationFile.outputStream().use {
-                outputStream ->
+            destinationFile.outputStream().use { outputStream ->
 
                 inputStream.copyTo(
                     outputStream,
@@ -1174,8 +937,7 @@ class MainActivity : AudioServiceActivity() {
 
                     val intent =
                         Intent(
-                            Settings
-                                .ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION
+                            Settings.ACTION_MANAGE_APP_ALL_FILES_ACCESS_PERMISSION
                         ).apply {
 
                             data =
@@ -1190,8 +952,7 @@ class MainActivity : AudioServiceActivity() {
 
                     startActivity(
                         Intent(
-                            Settings
-                                .ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION
+                            Settings.ACTION_MANAGE_ALL_FILES_ACCESS_PERMISSION
                         )
                     )
                 }
@@ -1211,8 +972,7 @@ class MainActivity : AudioServiceActivity() {
     }
 
     // =========================================================================
-    // ARCHIVOS DE LA BIBLIOTECA
-    // SOLO MUSIC + DOWNLOAD
+    // BIBLIOTECA
     // =========================================================================
 
     private fun getLibraryFiles():
@@ -1236,28 +996,10 @@ class MainActivity : AudioServiceActivity() {
                 Environment.DIRECTORY_DOWNLOADS
             )
 
-        android.util.Log.d(
-            "SONARA_ANDROID_SCAN",
-            "Escaneando únicamente Music: ${musicDirectory.absolutePath}"
-        )
-
-        android.util.Log.d(
-            "SONARA_ANDROID_SCAN",
-            "Escaneando únicamente Download: ${downloadDirectory.absolutePath}"
-        )
-
-        // =====================================================================
-        // MUSIC
-        // =====================================================================
-
         scanLibraryFiles(
             directory = musicDirectory,
             files = files
         )
-
-        // =====================================================================
-        // DOWNLOAD
-        // =====================================================================
 
         scanLibraryFiles(
             directory = downloadDirectory,
@@ -1277,46 +1019,23 @@ class MainActivity : AudioServiceActivity() {
         files: MutableList<Map<String, Any?>>
     ) {
 
-        if (!directory.exists()) {
-
-            android.util.Log.d(
-                "SONARA_ANDROID_SCAN",
-                "Directorio no existe: ${directory.absolutePath}"
-            )
-
-            return
-        }
-
-        if (!directory.isDirectory) {
+        if (!directory.exists() ||
+            !directory.isDirectory
+        ) {
             return
         }
 
         val directoryFiles =
             try {
-
                 directory.listFiles()
-
-            } catch (exception: Exception) {
-
-                android.util.Log.w(
-                    "SONARA_ANDROID_SCAN",
-                    "No se pudo leer: ${directory.absolutePath}",
-                    exception
-                )
-
+            } catch (_: Exception) {
                 null
-            }
-                ?: return
+            } ?: return
 
         for (file in directoryFiles) {
 
-            // =============================================================
-            // DIRECTORIO
-            // =============================================================
-
             if (file.isDirectory) {
 
-                // Ignorar carpetas ocultas.
                 if (file.name.startsWith(".")) {
                     continue
                 }
@@ -1328,10 +1047,6 @@ class MainActivity : AudioServiceActivity() {
 
                 continue
             }
-
-            // =============================================================
-            // ARCHIVO
-            // =============================================================
 
             if (!file.isFile) {
                 continue
@@ -1348,21 +1063,11 @@ class MainActivity : AudioServiceActivity() {
                 continue
             }
 
-            android.util.Log.d(
-                "SONARA_ANDROID_SCAN",
-                "Archivo encontrado: ${file.absolutePath}"
-            )
-
             files.add(
                 mapOf(
-                    "filePath" to
-                        file.absolutePath,
-
-                    "lastModified" to
-                        file.lastModified(),
-
-                    "fileSize" to
-                        file.length()
+                    "filePath" to file.absolutePath,
+                    "lastModified" to file.lastModified(),
+                    "fileSize" to file.length()
                 )
             )
         }
@@ -1377,7 +1082,6 @@ class MainActivity : AudioServiceActivity() {
     ): Map<String, Any?> {
 
         if (!file.exists()) {
-
             throw IllegalArgumentException(
                 "El archivo no existe."
             )
@@ -1394,65 +1098,39 @@ class MainActivity : AudioServiceActivity() {
 
             val title =
                 metadataRetriever.extractMetadata(
-                    MediaMetadataRetriever
-                        .METADATA_KEY_TITLE
-                )
-                    ?: file.nameWithoutExtension
+                    MediaMetadataRetriever.METADATA_KEY_TITLE
+                ) ?: file.nameWithoutExtension
 
             val artist =
                 metadataRetriever.extractMetadata(
-                    MediaMetadataRetriever
-                        .METADATA_KEY_ARTIST
+                    MediaMetadataRetriever.METADATA_KEY_ARTIST
                 )
 
             val album =
                 metadataRetriever.extractMetadata(
-                    MediaMetadataRetriever
-                        .METADATA_KEY_ALBUM
+                    MediaMetadataRetriever.METADATA_KEY_ALBUM
                 )
 
             val duration =
                 metadataRetriever.extractMetadata(
-                    MediaMetadataRetriever
-                        .METADATA_KEY_DURATION
-                )
-                    ?.toLongOrNull()
-                    ?: 0L
+                    MediaMetadataRetriever.METADATA_KEY_DURATION
+                )?.toLongOrNull() ?: 0L
 
             return mapOf(
-                "id" to
-                    file.absolutePath,
-
-                "filePath" to
-                    file.absolutePath,
-
-                "title" to
-                    title,
-
-                "artist" to
-                    artist,
-
-                "album" to
-                    album,
-
-                "duration" to
-                    duration,
-
-                "dateAdded" to
-                    file.lastModified(),
-
-                "lastModified" to
-                    file.lastModified(),
-
-                "fileSize" to
-                    file.length()
+                "id" to file.absolutePath,
+                "filePath" to file.absolutePath,
+                "title" to title,
+                "artist" to artist,
+                "album" to album,
+                "duration" to duration,
+                "dateAdded" to file.lastModified(),
+                "lastModified" to file.lastModified(),
+                "fileSize" to file.length()
             )
 
         } catch (_: Exception) {
 
-            return createFallbackSong(
-                file
-            )
+            return createFallbackSong(file)
 
         } finally {
 
@@ -1463,119 +1141,69 @@ class MainActivity : AudioServiceActivity() {
         }
     }
 
-    // =========================================================================
-    // FALLBACK
-    // =========================================================================
-
     private fun createFallbackSong(
         file: File
     ): Map<String, Any?> {
 
         return mapOf(
-            "id" to
-                file.absolutePath,
-
-            "filePath" to
-                file.absolutePath,
-
-            "title" to
-                file.nameWithoutExtension,
-
-            "artist" to
-                null,
-
-            "album" to
-                null,
-
-            "duration" to
-                0L,
-
-            "dateAdded" to
-                file.lastModified(),
-
-            "lastModified" to
-                file.lastModified(),
-
-            "fileSize" to
-                file.length()
+            "id" to file.absolutePath,
+            "filePath" to file.absolutePath,
+            "title" to file.nameWithoutExtension,
+            "artist" to null,
+            "album" to null,
+            "duration" to 0L,
+            "dateAdded" to file.lastModified(),
+            "lastModified" to file.lastModified(),
+            "fileSize" to file.length()
         )
     }
 }
 
 // ===========================================================================
-// REPLAYGAIN
+// REPLAYGAIN OPTIMIZADO
 // ===========================================================================
 
 private object ReplayGainCalculator {
 
-    private const val TARGET_LOUDNESS_LUFS =
-        -18.0
+    private const val TARGET_LOUDNESS_LUFS = -18.0
 
-    private const val ABSOLUTE_GATE_LUFS =
-        -70.0
+    private const val ABSOLUTE_GATE_LUFS = -70.0
 
-    private const val RELATIVE_GATE_OFFSET_LU =
-        -10.0
+    private const val RELATIVE_GATE_OFFSET_LU = -10.0
 
-    private const val MIN_VALID_GAIN_DB =
-        -30.0
+    private const val MIN_VALID_GAIN_DB = -30.0
 
-    private const val MAX_VALID_GAIN_DB =
-        30.0
+    private const val MAX_VALID_GAIN_DB = 30.0
 
-    private const val BLOCK_SECONDS =
-        0.4
+    private const val BLOCK_SECONDS = 0.4
 
-    private const val STEP_SECONDS =
-        0.1
+    private const val STEP_SECONDS = 0.1
 
-    private const val SEGMENT_COUNT =
-        3
+    /*
+     * Para el escaneo de biblioteca:
+     *
+     * - canciones <= 15 s: completas
+     * - canciones > 15 s: una única ventana de 15 s
+     *
+     * Esto elimina los 3 seek + 3 flush originales.
+     */
+    private const val MAX_ANALYSIS_SECONDS = 15.0
 
-    private const val SEGMENT_SECONDS =
-        5.0
-
-    private const val MAX_ANALYSIS_SECONDS =
-        15.0
-
-    private const val DEQUEUE_TIMEOUT_US =
-        10_000L
-
-    private const val MAX_TRAILING_TRY_AGAIN =
-        50
+    private const val DEQUEUE_TIMEOUT_US = 10_000L
 
     fun calculateTrackGain(
         file: File
     ): Double? {
 
-        if (
-            !file.exists() ||
-            !file.isFile
-        ) {
+        if (!file.exists() || !file.isFile) {
             return null
         }
 
-        val durationUs =
-            getDurationUs(
-                file
-            )
-
-        return try {
-
-            calculateTrackGainInternal(
-                file = file,
-                durationUs = durationUs
-            )
-
-        } catch (_: Exception) {
-
-            null
-        }
+        return calculateTrackGainInternal(file)
     }
 
     private fun calculateTrackGainInternal(
-        file: File,
-        durationUs: Long
+        file: File
     ): Double? {
 
         val extractor =
@@ -1590,45 +1218,31 @@ private object ReplayGainCalculator {
         } catch (_: Exception) {
 
             extractor.release()
-
             return null
         }
 
-        var trackIndex =
-            -1
-
-        var inputFormat:
-            MediaFormat? =
-            null
+        var trackIndex = -1
+        var inputFormat: MediaFormat? = null
 
         for (
-            index in
-            0 until extractor.trackCount
+            index in 0 until extractor.trackCount
         ) {
 
-            val trackFormat =
-                extractor.getTrackFormat(
-                    index
-                )
+            val format =
+                extractor.getTrackFormat(index)
 
             val mime =
-                trackFormat.getString(
+                format.getString(
                     MediaFormat.KEY_MIME
                 )
 
             if (
                 mime != null &&
-                mime.startsWith(
-                    "audio/"
-                )
+                mime.startsWith("audio/")
             ) {
 
-                trackIndex =
-                    index
-
-                inputFormat =
-                    trackFormat
-
+                trackIndex = index
+                inputFormat = format
                 break
             }
         }
@@ -1639,40 +1253,52 @@ private object ReplayGainCalculator {
         ) {
 
             extractor.release()
-
             return null
         }
 
-        extractor.selectTrack(
-            trackIndex
-        )
+        extractor.selectTrack(trackIndex)
 
         val mime =
             inputFormat.getString(
                 MediaFormat.KEY_MIME
             )
 
-        if (
-            mime.isNullOrEmpty()
-        ) {
+        if (mime.isNullOrEmpty()) {
 
             extractor.release()
-
             return null
         }
+
+        /*
+         * MediaExtractor ya conoce la duración.
+         * Evitamos crear otro MediaMetadataRetriever.
+         */
+        val durationUs =
+            if (
+                inputFormat.containsKey(
+                    MediaFormat.KEY_DURATION
+                )
+            ) {
+
+                inputFormat.getLong(
+                    MediaFormat.KEY_DURATION
+                )
+
+            } else {
+
+                0L
+            }
 
         val codec =
             try {
 
-                MediaCodec
-                    .createDecoderByType(
-                        mime
-                    )
+                MediaCodec.createDecoderByType(
+                    mime
+                )
 
             } catch (_: Exception) {
 
                 extractor.release()
-
                 return null
             }
 
@@ -1687,38 +1313,64 @@ private object ReplayGainCalculator {
 
             codec.start()
 
-            val segmentStartsUs =
-                getSegmentStartsUs(
+            /*
+             * UNA SOLA VENTANA.
+             *
+             * En vez de:
+             * 20% + 50% + 80%
+             *
+             * hacemos:
+             * - pista corta → desde 0
+             * - pista larga → centro de la pista
+             *
+             * Esto evita dos flush adicionales.
+             */
+            val startUs =
+                calculateAnalysisStartUs(
                     durationUs
                 )
 
-            val blockPowers =
-                mutableListOf<Double>()
+            if (startUs > 0L) {
 
-            for (
-                startUs in
-                segmentStartsUs
-            ) {
-
-                val segmentPowers =
-                    measureSegmentWithExistingDecoder(
-                        extractor = extractor,
-                        codec = codec,
-                        startUs = startUs,
-                        segmentSeconds =
-                            getSegmentDurationSeconds(
-                                durationUs = durationUs,
-                                startUs = startUs
-                            )
-                    )
-
-                blockPowers.addAll(
-                    segmentPowers
+                extractor.seekTo(
+                    startUs,
+                    MediaExtractor.SEEK_TO_PREVIOUS_SYNC
                 )
+
+                /*
+                 * Solo necesitamos un flush.
+                 *
+                 * El codec acaba de iniciarse, por lo que
+                 * normalmente no es necesario hacer flush
+                 * para startUs == 0.
+                 */
+                codec.flush()
             }
 
-            computeGainFromBlockPowers(
-                blockPowers
+            val maxAnalysisUs =
+                if (durationUs > 0L) {
+
+                    minOf(
+                        MAX_ANALYSIS_SECONDS * 1_000_000.0,
+                        (
+                            durationUs -
+                                startUs
+                        ).coerceAtLeast(0L) /
+                            1.0
+                    ).toLong()
+
+                } else {
+
+                    (
+                        MAX_ANALYSIS_SECONDS *
+                            1_000_000.0
+                    ).toLong()
+                }
+
+            decodeAndMeasure(
+                extractor = extractor,
+                codec = codec,
+                maxAnalysisUs = maxAnalysisUs
             )
 
         } catch (_: Exception) {
@@ -1744,637 +1396,367 @@ private object ReplayGainCalculator {
         }
     }
 
-    private fun getDurationUs(
-        file: File
+    private fun calculateAnalysisStartUs(
+        durationUs: Long
     ): Long {
 
-        val retriever =
-            MediaMetadataRetriever()
-
-        return try {
-
-            retriever.setDataSource(
-                file.absolutePath
-            )
-
-            val durationMs =
-                retriever.extractMetadata(
-                    MediaMetadataRetriever
-                        .METADATA_KEY_DURATION
-                )
-                    ?.toLongOrNull()
-                    ?: 0L
-
-            durationMs * 1000L
-
-        } catch (_: Exception) {
-
-            0L
-
-        } finally {
-
-            try {
-                retriever.release()
-            } catch (_: Exception) {
-            }
-        }
-    }
-
-    private fun getSegmentStartsUs(
-        durationUs: Long
-    ): List<Long> {
-
-        if (
-            durationUs <= 0L
-        ) {
-
-            return listOf(
-                0L
-            )
+        if (durationUs <= 0L) {
+            return 0L
         }
 
-        val durationSeconds =
-            durationUs /
-                1_000_000.0
-
-        if (
-            durationSeconds <=
-            MAX_ANALYSIS_SECONDS
-        ) {
-
-            return listOf(
-                0L
-            )
-        }
-
-        val starts =
-            mutableListOf<Long>()
-
-        val fractions =
-            doubleArrayOf(
-                0.20,
-                0.50,
-                0.80
-            )
-
-        for (
-            fraction in
-            fractions
-        ) {
-
-            val centerSeconds =
-                durationSeconds *
-                    fraction
-
-            val startSeconds =
-                (
-                    centerSeconds -
-                        SEGMENT_SECONDS / 2.0
-                ).coerceIn(
-                    0.0,
-                    (
-                        durationSeconds -
-                            SEGMENT_SECONDS
-                    ).coerceAtLeast(
-                        0.0
-                    )
-                )
-
-            starts.add(
-                (
-                    startSeconds *
-                        1_000_000.0
-                ).toLong()
-            )
-        }
-
-        return starts
-    }
-
-    private fun getSegmentDurationSeconds(
-        durationUs: Long,
-        startUs: Long
-    ): Double {
-
-        if (
-            durationUs <= 0L
-        ) {
-
-            return MAX_ANALYSIS_SECONDS
-        }
-
-        val remainingUs =
+        val maxAnalysisUs =
             (
-                durationUs -
-                    startUs
-            ).coerceAtLeast(
-                0L
-            )
+                MAX_ANALYSIS_SECONDS *
+                    1_000_000.0
+            ).toLong()
 
-        val remainingSeconds =
-            remainingUs /
-                1_000_000.0
+        if (durationUs <= maxAnalysisUs) {
+            return 0L
+        }
 
-        return minOf(
-            if (
-                durationUs /
-                    1_000_000.0 <=
-                MAX_ANALYSIS_SECONDS
-            ) {
-
-                MAX_ANALYSIS_SECONDS
-
-            } else {
-
-                SEGMENT_SECONDS
-            },
-
-            remainingSeconds
+        /*
+         * Centro de la pista.
+         *
+         * Dejamos la ventana de 15 s centrada
+         * aproximadamente en el 50%.
+         */
+        return (
+            durationUs / 2L -
+                maxAnalysisUs / 2L
+        ).coerceIn(
+            0L,
+            durationUs - maxAnalysisUs
         )
     }
 
-    private fun measureSegmentWithExistingDecoder(
+    private fun decodeAndMeasure(
         extractor: MediaExtractor,
         codec: MediaCodec,
-        startUs: Long,
-        segmentSeconds: Double
-    ): List<Double> {
+        maxAnalysisUs: Long
+    ): Double? {
 
-        if (
-            segmentSeconds <= 0.0
-        ) {
-
-            return emptyList()
+        if (maxAnalysisUs <= 0L) {
+            return null
         }
 
-        try {
+        val bufferInfo =
+            MediaCodec.BufferInfo()
 
-            extractor.seekTo(
-                startUs,
-                MediaExtractor
-                    .SEEK_TO_PREVIOUS_SYNC
-            )
+        var sawInputEOS = false
+        var sawOutputEOS = false
 
-        } catch (_: Exception) {
+        var firstOutputPtsUs: Long? = null
 
-            return emptyList()
-        }
-
-        try {
-
-            codec.flush()
-
-        } catch (_: Exception) {
-
-            return emptyList()
-        }
-
-        val outputFormat =
-            try {
-
-                codec.outputFormat
-
-            } catch (_: Exception) {
-
-                null
-            }
-
-        var sampleRate =
-            if (
-                outputFormat != null &&
-                outputFormat.containsKey(
-                    MediaFormat.KEY_SAMPLE_RATE
-                )
-            ) {
-
-                outputFormat.getInteger(
-                    MediaFormat.KEY_SAMPLE_RATE
-                )
-
-            } else {
-
-                44100
-            }
-
-        var channelCount =
-            if (
-                outputFormat != null &&
-                outputFormat.containsKey(
-                    MediaFormat.KEY_CHANNEL_COUNT
-                )
-            ) {
-
-                outputFormat
-                    .getInteger(
-                        MediaFormat.KEY_CHANNEL_COUNT
-                    )
-                    .coerceAtLeast(
-                        1
-                    )
-
-            } else {
-
-                1
-            }
-
+        var sampleRate = 44100
+        var channelCount = 2
         var pcmEncoding =
-            if (
-                outputFormat != null &&
-                outputFormat.containsKey(
-                    MediaFormat.KEY_PCM_ENCODING
-                )
-            ) {
-
-                outputFormat.getInteger(
-                    MediaFormat.KEY_PCM_ENCODING
-                )
-
-            } else {
-
-                AudioFormat
-                    .ENCODING_PCM_16BIT
-            }
+            AudioFormat.ENCODING_PCM_16BIT
 
         var blockSize =
             (
                 BLOCK_SECONDS *
                     sampleRate
-            )
-                .toInt()
-                .coerceAtLeast(
-                    1
-                )
+            ).toInt()
 
         var stepSize =
             (
                 STEP_SECONDS *
                     sampleRate
-            )
-                .toInt()
-                .coerceAtLeast(
-                    1
-                )
+            ).toInt()
 
         var channelFilters =
-            Array(
-                channelCount
-            ) {
-
-                KWeightingFilter(
-                    sampleRate
-                )
+            Array(channelCount) {
+                KWeightingFilter(sampleRate)
             }
 
         var channelMeters =
-            Array(
-                channelCount
-            ) {
-
-                ChannelMeter(
-                    blockSize
-                )
-            }
-
-        var channelWeights =
-            DoubleArray(
-                channelCount
-            ) {
-
-                1.0
+            Array(channelCount) {
+                ChannelMeter(blockSize)
             }
 
         val blockPowers =
-            mutableListOf<Double>()
+            ArrayList<Double>(160)
 
-        val maxFrames =
-            (
-                segmentSeconds *
-                    sampleRate
-            ).toLong()
+        var processedFrames = 0L
 
-        var processedFrames =
-            0L
+        while (!sawOutputEOS) {
 
-        val bufferInfo =
-            MediaCodec.BufferInfo()
+            /*
+             * INPUT
+             */
+            if (!sawInputEOS) {
 
-        var sawInputEOS =
-            false
+                val inputIndex =
+                    codec.dequeueInputBuffer(
+                        DEQUEUE_TIMEOUT_US
+                    )
 
-        var sawOutputEOS =
-            false
+                if (inputIndex >= 0) {
 
-        var trailingTryAgainCount =
-            0
-
-        try {
-
-            while (
-                !sawOutputEOS &&
-                processedFrames <
-                maxFrames
-            ) {
-
-                if (!sawInputEOS) {
-
-                    val inputIndex =
-                        codec.dequeueInputBuffer(
-                            DEQUEUE_TIMEOUT_US
+                    val inputBuffer =
+                        codec.getInputBuffer(
+                            inputIndex
                         )
 
-                    if (
-                        inputIndex >= 0
-                    ) {
+                    if (inputBuffer != null) {
 
-                        val inputBuffer =
-                            codec.getInputBuffer(
-                                inputIndex
-                            )
+                        inputBuffer.clear()
 
-                        if (
-                            inputBuffer != null
-                        ) {
-
-                            inputBuffer.clear()
-
-                            val sampleSize =
-                                extractor.readSampleData(
-                                    inputBuffer,
-                                    0
-                                )
-
-                            if (
-                                sampleSize < 0
-                            ) {
-
-                                codec.queueInputBuffer(
-                                    inputIndex,
-                                    0,
-                                    0,
-                                    0,
-                                    MediaCodec
-                                        .BUFFER_FLAG_END_OF_STREAM
-                                )
-
-                                sawInputEOS =
-                                    true
-
-                            } else {
-
-                                codec.queueInputBuffer(
-                                    inputIndex,
-                                    0,
-                                    sampleSize,
-                                    extractor.sampleTime,
-                                    0
-                                )
-
-                                extractor.advance()
-                            }
-                        }
-                    }
-                }
-
-                when (
-                    val outputIndex =
-                        codec.dequeueOutputBuffer(
-                            bufferInfo,
-                            DEQUEUE_TIMEOUT_US
-                        )
-                ) {
-
-                    MediaCodec
-                        .INFO_TRY_AGAIN_LATER -> {
-
-                        if (sawInputEOS) {
-
-                            trailingTryAgainCount++
-
-                            if (
-                                trailingTryAgainCount >=
-                                MAX_TRAILING_TRY_AGAIN
-                            ) {
-
-                                sawOutputEOS =
-                                    true
-                            }
-                        }
-                    }
-
-                    MediaCodec
-                        .INFO_OUTPUT_FORMAT_CHANGED -> {
-
-                        trailingTryAgainCount =
-                            0
-
-                        val realOutputFormat =
-                            codec.outputFormat
-
-                        sampleRate =
-                            if (
-                                realOutputFormat.containsKey(
-                                    MediaFormat.KEY_SAMPLE_RATE
-                                )
-                            ) {
-
-                                realOutputFormat.getInteger(
-                                    MediaFormat.KEY_SAMPLE_RATE
-                                )
-
-                            } else {
-
-                                sampleRate
-                            }
-
-                        channelCount =
-                            if (
-                                realOutputFormat.containsKey(
-                                    MediaFormat.KEY_CHANNEL_COUNT
-                                )
-                            ) {
-
-                                realOutputFormat
-                                    .getInteger(
-                                        MediaFormat.KEY_CHANNEL_COUNT
-                                    )
-                                    .coerceAtLeast(
-                                        1
-                                    )
-
-                            } else {
-
-                                channelCount
-                            }
-
-                        pcmEncoding =
-                            if (
-                                realOutputFormat.containsKey(
-                                    MediaFormat.KEY_PCM_ENCODING
-                                )
-                            ) {
-
-                                realOutputFormat.getInteger(
-                                    MediaFormat.KEY_PCM_ENCODING
-                                )
-
-                            } else {
-
-                                AudioFormat
-                                    .ENCODING_PCM_16BIT
-                            }
-
-                        blockSize =
-                            (
-                                BLOCK_SECONDS *
-                                    sampleRate
-                            )
-                                .toInt()
-                                .coerceAtLeast(
-                                    1
-                                )
-
-                        stepSize =
-                            (
-                                STEP_SECONDS *
-                                    sampleRate
-                            )
-                                .toInt()
-                                .coerceAtLeast(
-                                    1
-                                )
-
-                        channelFilters =
-                            Array(
-                                channelCount
-                            ) {
-
-                                KWeightingFilter(
-                                    sampleRate
-                                )
-                            }
-
-                        channelMeters =
-                            Array(
-                                channelCount
-                            ) {
-
-                                ChannelMeter(
-                                    blockSize
-                                )
-                            }
-
-                        channelWeights =
-                            DoubleArray(
-                                channelCount
-                            ) {
-
-                                1.0
-                            }
-                    }
-
-                    else -> {
-
-                        if (
-                            outputIndex >= 0
-                        ) {
-
-                            trailingTryAgainCount =
+                        val sampleSize =
+                            extractor.readSampleData(
+                                inputBuffer,
                                 0
+                            )
 
-                            try {
+                        if (sampleSize < 0) {
 
-                                if (
-                                    bufferInfo.size > 0
-                                ) {
+                            codec.queueInputBuffer(
+                                inputIndex,
+                                0,
+                                0,
+                                0L,
+                                MediaCodec.BUFFER_FLAG_END_OF_STREAM
+                            )
 
-                                    val outputBuffer =
-                                        codec.getOutputBuffer(
-                                            outputIndex
-                                        )
+                            sawInputEOS = true
 
-                                    if (
-                                        outputBuffer != null
-                                    ) {
+                        } else {
 
-                                        outputBuffer.position(
-                                            bufferInfo.offset
-                                        )
+                            val presentationTimeUs =
+                                extractor.sampleTime
 
-                                        outputBuffer.limit(
-                                            bufferInfo.offset +
-                                                bufferInfo.size
-                                        )
+                            codec.queueInputBuffer(
+                                inputIndex,
+                                0,
+                                sampleSize,
+                                presentationTimeUs,
+                                0
+                            )
 
-                                        processedFrames =
-                                            processPcmBuffer(
-                                                buffer =
-                                                    outputBuffer,
-
-                                                pcmEncoding =
-                                                    pcmEncoding,
-
-                                                channelCount =
-                                                    channelCount,
-
-                                                channelFilters =
-                                                    channelFilters,
-
-                                                channelMeters =
-                                                    channelMeters,
-
-                                                channelWeights =
-                                                    channelWeights,
-
-                                                blockPowers =
-                                                    blockPowers,
-
-                                                blockSize =
-                                                    blockSize,
-
-                                                stepSize =
-                                                    stepSize,
-
-                                                processedFrames =
-                                                    processedFrames,
-
-                                                maxFrames =
-                                                    maxFrames
-                                            )
-                                    }
-                                }
-
-                                if (
-                                    bufferInfo.flags and
-                                    MediaCodec
-                                        .BUFFER_FLAG_END_OF_STREAM
-                                    != 0
-                                ) {
-
-                                    sawOutputEOS =
-                                        true
-                                }
-
-                            } finally {
-
-                                codec.releaseOutputBuffer(
-                                    outputIndex,
-                                    false
-                                )
-                            }
+                            extractor.advance()
                         }
                     }
                 }
             }
 
-        } catch (_: Exception) {
+            /*
+             * OUTPUT
+             */
+            when (
+                val outputIndex =
+                    codec.dequeueOutputBuffer(
+                        bufferInfo,
+                        DEQUEUE_TIMEOUT_US
+                    )
+            ) {
 
-            return emptyList()
+                MediaCodec.INFO_TRY_AGAIN_LATER -> {
+
+                    /*
+                     * No hacemos 50 intentos artificiales.
+                     *
+                     * Si ya enviamos EOS y no hay salida,
+                     * dejamos que el siguiente ciclo resuelva
+                     * el estado del codec.
+                     */
+                    if (sawInputEOS) {
+
+                        val second =
+                            bufferInfo.presentationTimeUs
+
+                        if (
+                            second >= maxAnalysisUs &&
+                            firstOutputPtsUs != null
+                        ) {
+                            sawOutputEOS = true
+                        }
+                    }
+                }
+
+                MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
+
+                    val format =
+                        codec.outputFormat
+
+                    sampleRate =
+                        if (
+                            format.containsKey(
+                                MediaFormat.KEY_SAMPLE_RATE
+                            )
+                        ) {
+                            format.getInteger(
+                                MediaFormat.KEY_SAMPLE_RATE
+                            )
+                        } else {
+                            sampleRate
+                        }
+
+                    channelCount =
+                        if (
+                            format.containsKey(
+                                MediaFormat.KEY_CHANNEL_COUNT
+                            )
+                        ) {
+                            format.getInteger(
+                                MediaFormat.KEY_CHANNEL_COUNT
+                            ).coerceAtLeast(1)
+                        } else {
+                            channelCount
+                        }
+
+                    pcmEncoding =
+                        if (
+                            format.containsKey(
+                                MediaFormat.KEY_PCM_ENCODING
+                            )
+                        ) {
+                            format.getInteger(
+                                MediaFormat.KEY_PCM_ENCODING
+                            )
+                        } else {
+                            AudioFormat.ENCODING_PCM_16BIT
+                        }
+
+                    blockSize =
+                        (
+                            BLOCK_SECONDS *
+                                sampleRate
+                        )
+                            .toInt()
+                            .coerceAtLeast(1)
+
+                    stepSize =
+                        (
+                            STEP_SECONDS *
+                                sampleRate
+                        )
+                            .toInt()
+                            .coerceAtLeast(1)
+
+                    channelFilters =
+                        Array(channelCount) {
+                            KWeightingFilter(sampleRate)
+                        }
+
+                    channelMeters =
+                        Array(channelCount) {
+                            ChannelMeter(blockSize)
+                        }
+                }
+
+                else -> {
+
+                    if (outputIndex < 0) {
+                        continue
+                    }
+
+                    try {
+
+                        if (bufferInfo.size > 0) {
+
+                            val outputBuffer =
+                                codec.getOutputBuffer(
+                                    outputIndex
+                                )
+
+                            if (outputBuffer != null) {
+
+                                if (
+                                    firstOutputPtsUs == null
+                                ) {
+                                    firstOutputPtsUs =
+                                        bufferInfo.presentationTimeUs
+                                }
+
+                                outputBuffer.position(
+                                    bufferInfo.offset
+                                )
+
+                                outputBuffer.limit(
+                                    (
+                                        bufferInfo.offset +
+                                            bufferInfo.size
+                                    ).coerceAtMost(
+                                        outputBuffer.capacity()
+                                    )
+                                )
+
+                                processedFrames =
+                                    processPcmBufferOptimized(
+                                        buffer =
+                                            outputBuffer,
+                                        pcmEncoding =
+                                            pcmEncoding,
+                                        channelCount =
+                                            channelCount,
+                                        channelFilters =
+                                            channelFilters,
+                                        channelMeters =
+                                            channelMeters,
+                                        blockPowers =
+                                            blockPowers,
+                                        blockSize =
+                                            blockSize,
+                                        stepSize =
+                                            stepSize,
+                                        processedFrames =
+                                            processedFrames,
+                                        maxFrames =
+                                            (
+                                                maxAnalysisUs *
+                                                    sampleRate /
+                                                    1_000_000L
+                                            )
+                                    )
+                            }
+                        }
+
+                        if (
+                            bufferInfo.flags and
+                                MediaCodec.BUFFER_FLAG_END_OF_STREAM !=
+                            0
+                        ) {
+                            sawOutputEOS = true
+                        }
+
+                        /*
+                         * Si ya procesamos la ventana completa,
+                         * no necesitamos seguir decodificando.
+                         */
+                        if (
+                            processedFrames >=
+                                (
+                                    maxAnalysisUs *
+                                        sampleRate /
+                                        1_000_000L
+                                )
+                        ) {
+                            sawOutputEOS = true
+                        }
+
+                    } finally {
+
+                        codec.releaseOutputBuffer(
+                            outputIndex,
+                            false
+                        )
+                    }
+                }
+            }
         }
 
-        return blockPowers
+        return computeGainFromBlockPowers(
+            blockPowers
+        )
     }
 
-    private fun processPcmBuffer(
+    /*
+     * Hot loop optimizado.
+     *
+     * Especializamos estéreo porque es el formato más habitual.
+     * Elimina llamadas processSample() y push() por cada sample.
+     */
+    private fun processPcmBufferOptimized(
         buffer: java.nio.ByteBuffer,
         pcmEncoding: Int,
         channelCount: Int,
@@ -2382,8 +1764,6 @@ private object ReplayGainCalculator {
             Array<KWeightingFilter>,
         channelMeters:
             Array<ChannelMeter>,
-        channelWeights:
-            DoubleArray,
         blockPowers:
             MutableList<Double>,
         blockSize: Int,
@@ -2392,46 +1772,291 @@ private object ReplayGainCalculator {
         maxFrames: Long
     ): Long {
 
-        var currentFrame =
-            processedFrames
+        var currentFrame = processedFrames
 
-        val orderedBuffer =
-            buffer
-                .slice()
-                .order(
-                    ByteOrder
-                        .nativeOrder()
-                )
+        val ordered =
+            buffer.slice().order(
+                ByteOrder.nativeOrder()
+            )
+
+        if (channelCount == 2) {
+
+            when (pcmEncoding) {
+
+                AudioFormat.ENCODING_PCM_16BIT -> {
+
+                    val pcm =
+                        ordered.asShortBuffer()
+
+                    val totalFrames =
+                        pcm.remaining() / 2
+
+                    var frame = 0
+
+                    while (
+                        frame < totalFrames &&
+                        currentFrame < maxFrames
+                    ) {
+
+                        val left =
+                            pcm.get(frame * 2)
+                                .toDouble() /
+                                32768.0
+
+                        val right =
+                            pcm.get(frame * 2 + 1)
+                                .toDouble() /
+                                32768.0
+
+                        val filteredLeft =
+                            channelFilters[0]
+                                .process(left)
+
+                        val filteredRight =
+                            channelFilters[1]
+                                .process(right)
+
+                        channelMeters[0]
+                            .push(filteredLeft)
+
+                        channelMeters[1]
+                            .push(filteredRight)
+
+                        currentFrame++
+
+                        if (
+                            currentFrame >= blockSize &&
+                            (
+                                currentFrame -
+                                    blockSize
+                            ) %
+                            stepSize.toLong() == 0L
+                        ) {
+
+                            val power =
+                                channelMeters[0]
+                                    .meanSquare +
+                                channelMeters[1]
+                                    .meanSquare
+
+                            if (
+                                power > 0.0 &&
+                                power.isFinite()
+                            ) {
+                                blockPowers.add(power)
+                            }
+                        }
+
+                        frame++
+                    }
+                }
+
+                AudioFormat.ENCODING_PCM_FLOAT -> {
+
+                    val pcm =
+                        ordered.asFloatBuffer()
+
+                    val totalFrames =
+                        pcm.remaining() / 2
+
+                    var frame = 0
+
+                    while (
+                        frame < totalFrames &&
+                        currentFrame < maxFrames
+                    ) {
+
+                        val left =
+                            pcm.get(frame * 2)
+                                .toDouble()
+                                .coerceIn(-1.0, 1.0)
+
+                        val right =
+                            pcm.get(frame * 2 + 1)
+                                .toDouble()
+                                .coerceIn(-1.0, 1.0)
+
+                        val filteredLeft =
+                            channelFilters[0]
+                                .process(left)
+
+                        val filteredRight =
+                            channelFilters[1]
+                                .process(right)
+
+                        channelMeters[0]
+                            .push(filteredLeft)
+
+                        channelMeters[1]
+                            .push(filteredRight)
+
+                        currentFrame++
+
+                        if (
+                            currentFrame >= blockSize &&
+                            (
+                                currentFrame -
+                                    blockSize
+                            ) %
+                            stepSize.toLong() == 0L
+                        ) {
+
+                            val power =
+                                channelMeters[0]
+                                    .meanSquare +
+                                channelMeters[1]
+                                    .meanSquare
+
+                            if (
+                                power > 0.0 &&
+                                power.isFinite()
+                            ) {
+                                blockPowers.add(power)
+                            }
+                        }
+
+                        frame++
+                    }
+                }
+            }
+
+            return currentFrame
+        }
+
+        /*
+         * Fallback multicanal.
+         */
+        return processPcmBufferGeneric(
+            ordered = ordered,
+            pcmEncoding = pcmEncoding,
+            channelCount = channelCount,
+            channelFilters = channelFilters,
+            channelMeters = channelMeters,
+            blockPowers = blockPowers,
+            blockSize = blockSize,
+            stepSize = stepSize,
+            processedFrames = processedFrames,
+            maxFrames = maxFrames
+        )
+    }
+
+    private fun processPcmBufferGeneric(
+        ordered: java.nio.ByteBuffer,
+        pcmEncoding: Int,
+        channelCount: Int,
+        channelFilters:
+            Array<KWeightingFilter>,
+        channelMeters:
+            Array<ChannelMeter>,
+        blockPowers:
+            MutableList<Double>,
+        blockSize: Int,
+        stepSize: Int,
+        processedFrames: Long,
+        maxFrames: Long
+    ): Long {
+
+        var currentFrame = processedFrames
 
         when (pcmEncoding) {
 
-            AudioFormat
-                .ENCODING_PCM_FLOAT -> {
+            AudioFormat.ENCODING_PCM_16BIT -> {
 
-                val floatBuffer =
-                    orderedBuffer
-                        .asFloatBuffer()
+                val pcm =
+                    ordered.asShortBuffer()
 
-                val frames =
-                    floatBuffer.remaining() /
+                val totalFrames =
+                    pcm.remaining() /
                         channelCount
 
-                var frame =
-                    0
+                var frame = 0
 
                 while (
-                    frame < frames &&
-                    currentFrame <
-                    maxFrames
+                    frame < totalFrames &&
+                    currentFrame < maxFrames
                 ) {
 
-                    for (
-                        channel in
-                        0 until channelCount
+                    var channel = 0
+
+                    while (
+                        channel < channelCount
                     ) {
 
                         val sample =
-                            floatBuffer.get(
+                            pcm.get(
+                                frame *
+                                    channelCount +
+                                    channel
+                            )
+                                .toDouble() /
+                                32768.0
+
+                        val filtered =
+                            channelFilters[channel]
+                                .process(sample)
+
+                        channelMeters[channel]
+                            .push(filtered)
+
+                        channel++
+
+                    }
+
+                    currentFrame++
+
+                    if (
+                        currentFrame >= blockSize &&
+                        (
+                            currentFrame -
+                                blockSize
+                        ) %
+                        stepSize.toLong() == 0L
+                    ) {
+
+                        var power = 0.0
+
+                        for (
+                            meter in channelMeters
+                        ) {
+                            power += meter.meanSquare
+                        }
+
+                        if (
+                            power > 0.0 &&
+                            power.isFinite()
+                        ) {
+                            blockPowers.add(power)
+                        }
+                    }
+
+                    frame++
+                }
+            }
+
+            AudioFormat.ENCODING_PCM_FLOAT -> {
+
+                val pcm =
+                    ordered.asFloatBuffer()
+
+                val totalFrames =
+                    pcm.remaining() /
+                        channelCount
+
+                var frame = 0
+
+                while (
+                    frame < totalFrames &&
+                    currentFrame < maxFrames
+                ) {
+
+                    var channel = 0
+
+                    while (
+                        channel < channelCount
+                    ) {
+
+                        val sample =
+                            pcm.get(
                                 frame *
                                     channelCount +
                                     channel
@@ -2442,220 +2067,69 @@ private object ReplayGainCalculator {
                                     1.0
                                 )
 
-                        processSample(
-                            sample = sample,
-                            channel = channel,
-                            channelFilters =
-                                channelFilters,
-                            channelMeters =
-                                channelMeters
-                        )
+                        val filtered =
+                            channelFilters[channel]
+                                .process(sample)
+
+                        channelMeters[channel]
+                            .push(filtered)
+
+                        channel++
+
                     }
 
                     currentFrame++
 
-                    addBlockIfNeeded(
-                        frameIndex =
-                            currentFrame,
-
-                        blockSize =
-                            blockSize,
-
-                        stepSize =
-                            stepSize,
-
-                        channelWeights =
-                            channelWeights,
-
-                        channelMeters =
-                            channelMeters,
-
-                        blockPowers =
-                            blockPowers
-                    )
-
-                    frame++
-                }
-            }
-
-            AudioFormat
-                .ENCODING_PCM_16BIT -> {
-
-                val shortBuffer =
-                    orderedBuffer
-                        .asShortBuffer()
-
-                val frames =
-                    shortBuffer.remaining() /
-                        channelCount
-
-                var frame =
-                    0
-
-                while (
-                    frame < frames &&
-                    currentFrame <
-                    maxFrames
-                ) {
-
-                    for (
-                        channel in
-                        0 until channelCount
+                    if (
+                        currentFrame >= blockSize &&
+                        (
+                            currentFrame -
+                                blockSize
+                        ) %
+                        stepSize.toLong() == 0L
                     ) {
 
-                        val raw =
-                            shortBuffer.get(
-                                frame *
-                                    channelCount +
-                                    channel
-                            )
+                        var power = 0.0
 
-                        val sample =
-                            raw /
-                                32768.0
+                        for (
+                            meter in channelMeters
+                        ) {
+                            power += meter.meanSquare
+                        }
 
-                        processSample(
-                            sample = sample,
-                            channel = channel,
-                            channelFilters =
-                                channelFilters,
-                            channelMeters =
-                                channelMeters
-                        )
+                        if (
+                            power > 0.0 &&
+                            power.isFinite()
+                        ) {
+                            blockPowers.add(power)
+                        }
                     }
-
-                    currentFrame++
-
-                    addBlockIfNeeded(
-                        frameIndex =
-                            currentFrame,
-
-                        blockSize =
-                            blockSize,
-
-                        stepSize =
-                            stepSize,
-
-                        channelWeights =
-                            channelWeights,
-
-                        channelMeters =
-                            channelMeters,
-
-                        blockPowers =
-                            blockPowers
-                    )
 
                     frame++
                 }
-            }
-
-            else -> {
-                // PCM no soportado.
             }
         }
 
         return currentFrame
     }
 
-    private fun processSample(
-        sample: Double,
-        channel: Int,
-        channelFilters:
-            Array<KWeightingFilter>,
-        channelMeters:
-            Array<ChannelMeter>
-    ) {
-
-        val filtered =
-            channelFilters[channel]
-                .process(
-                    sample
-                )
-
-        channelMeters[channel]
-            .push(
-                filtered
-            )
-    }
-
-    private fun addBlockIfNeeded(
-        frameIndex: Long,
-        blockSize: Int,
-        stepSize: Int,
-        channelWeights:
-            DoubleArray,
-        channelMeters:
-            Array<ChannelMeter>,
-        blockPowers:
-            MutableList<Double>
-    ) {
-
-        if (
-            frameIndex <
-            blockSize
-        ) {
-            return
-        }
-
-        if (
-            (
-                frameIndex -
-                    blockSize
-            ) %
-            stepSize.toLong() !=
-            0L
-        ) {
-            return
-        }
-
-        var weightedPower =
-            0.0
-
-        for (
-            channel in
-            channelMeters.indices
-        ) {
-
-            weightedPower +=
-                channelWeights[channel] *
-                channelMeters[channel]
-                    .meanSquare
-        }
-
-        if (
-            weightedPower > 0.0 &&
-            !weightedPower.isNaN() &&
-            !weightedPower.isInfinite()
-        ) {
-
-            blockPowers.add(
-                weightedPower
-            )
-        }
-    }
-
     private fun computeGainFromBlockPowers(
         blockPowers: List<Double>
     ): Double? {
 
-        if (
-            blockPowers.isEmpty()
-        ) {
+        if (blockPowers.isEmpty()) {
             return null
         }
 
         val absoluteGated =
-            blockPowers.filter {
+            blockPowers.filter { power ->
 
-                it > 0.0 &&
-                loudnessOf(it) >
-                ABSOLUTE_GATE_LUFS
+                power > 0.0 &&
+                    loudnessOf(power) >
+                    ABSOLUTE_GATE_LUFS
             }
 
-        if (
-            absoluteGated.isEmpty()
-        ) {
+        if (absoluteGated.isEmpty()) {
             return null
         }
 
@@ -2663,7 +2137,8 @@ private object ReplayGainCalculator {
             absoluteGated.average()
 
         if (
-            ungatedMeanPower <= 0.0
+            ungatedMeanPower <= 0.0 ||
+            !ungatedMeanPower.isFinite()
         ) {
             return null
         }
@@ -2672,24 +2147,19 @@ private object ReplayGainCalculator {
             loudnessOf(
                 ungatedMeanPower
             ) +
-            RELATIVE_GATE_OFFSET_LU
+                RELATIVE_GATE_OFFSET_LU
 
         val relativeGated =
-            absoluteGated.filter {
+            absoluteGated.filter { power ->
 
-                loudnessOf(it) >
-                relativeThreshold
+                loudnessOf(power) >
+                    relativeThreshold
             }
 
         val finalBlocks =
-            if (
-                relativeGated.isEmpty()
-            ) {
-
+            if (relativeGated.isEmpty()) {
                 absoluteGated
-
             } else {
-
                 relativeGated
             }
 
@@ -2697,7 +2167,8 @@ private object ReplayGainCalculator {
             finalBlocks.average()
 
         if (
-            gatedMeanPower <= 0.0
+            gatedMeanPower <= 0.0 ||
+            !gatedMeanPower.isFinite()
         ) {
             return null
         }
@@ -2708,20 +2179,16 @@ private object ReplayGainCalculator {
             )
 
         if (
-            integratedLoudness.isNaN() ||
-            integratedLoudness.isInfinite()
+            !integratedLoudness.isFinite()
         ) {
             return null
         }
 
         val gain =
             TARGET_LOUDNESS_LUFS -
-            integratedLoudness
+                integratedLoudness
 
-        if (
-            gain.isNaN() ||
-            gain.isInfinite()
-        ) {
+        if (!gain.isFinite()) {
             return null
         }
 
@@ -2736,32 +2203,28 @@ private object ReplayGainCalculator {
     ): Double {
 
         if (
-            power <= 0.0
+            power <= 0.0 ||
+            !power.isFinite()
         ) {
             return Double.NEGATIVE_INFINITY
         }
 
         return -0.691 +
             10.0 *
-            log10(
-                power
-            )
+            log10(power)
     }
 }
 
 // ===========================================================================
-// FILTRO K-WEIGHTING
+// K-WEIGHTING
 // ===========================================================================
 
 private class KWeightingFilter(
     sampleRate: Int
 ) {
 
-    private val stage1:
-        Biquad
-
-    private val stage2:
-        Biquad
+    private val stage1: Biquad
+    private val stage2: Biquad
 
     init {
 
@@ -2786,8 +2249,7 @@ private class KWeightingFilter(
 
         val vh =
             10.0.pow(
-                gStage1 /
-                    20.0
+                gStage1 / 20.0
             )
 
         val vb =
@@ -2797,62 +2259,56 @@ private class KWeightingFilter(
 
         val a0Stage1 =
             1.0 +
-            k1 /
-            qStage1 +
-            k1 *
-            k1
+                k1 / qStage1 +
+                k1 * k1
 
         stage1 =
             Biquad(
                 b0 =
                     (
                         vh +
-                        vb *
-                        k1 /
-                        qStage1 +
-                        k1 *
-                        k1
-                    ) /
-                    a0Stage1,
+                            vb *
+                            k1 /
+                            qStage1 +
+                            k1 *
+                            k1
+                        ) /
+                        a0Stage1,
 
                 b1 =
                     2.0 *
-                    (
-                        k1 *
-                        k1 -
-                        vh
-                    ) /
-                    a0Stage1,
+                        (
+                            k1 * k1 -
+                                vh
+                            ) /
+                        a0Stage1,
 
                 b2 =
                     (
                         vh -
-                        vb *
-                        k1 /
-                        qStage1 +
-                        k1 *
-                        k1
-                    ) /
-                    a0Stage1,
+                            vb *
+                            k1 /
+                            qStage1 +
+                            k1 *
+                            k1
+                        ) /
+                        a0Stage1,
 
                 a1 =
                     2.0 *
-                    (
-                        k1 *
-                        k1 -
-                        1.0
-                    ) /
-                    a0Stage1,
+                        (
+                            k1 * k1 -
+                                1.0
+                            ) /
+                        a0Stage1,
 
                 a2 =
                     (
                         1.0 -
-                        k1 /
-                        qStage1 +
-                        k1 *
-                        k1
-                    ) /
-                    a0Stage1
+                            k1 / qStage1 +
+                            k1 * k1
+                        ) /
+                        a0Stage1
             )
 
         val f0Stage2 =
@@ -2870,40 +2326,30 @@ private class KWeightingFilter(
 
         val a0Stage2 =
             1.0 +
-            k2 /
-            qStage2 +
-            k2 *
-            k2
+                k2 / qStage2 +
+                k2 * k2
 
         stage2 =
             Biquad(
-                b0 =
-                    1.0,
-
-                b1 =
-                    -2.0,
-
-                b2 =
-                    1.0,
+                b0 = 1.0,
+                b1 = -2.0,
+                b2 = 1.0,
 
                 a1 =
                     2.0 *
-                    (
-                        k2 *
-                        k2 -
-                        1.0
-                    ) /
-                    a0Stage2,
+                        (
+                            k2 * k2 -
+                                1.0
+                            ) /
+                        a0Stage2,
 
                 a2 =
                     (
                         1.0 -
-                        k2 /
-                        qStage2 +
-                        k2 *
-                        k2
-                    ) /
-                    a0Stage2
+                            k2 / qStage2 +
+                            k2 * k2
+                        ) /
+                        a0Stage2
             )
     }
 
@@ -2912,9 +2358,7 @@ private class KWeightingFilter(
     ): Double {
 
         return stage2.process(
-            stage1.process(
-                sample
-            )
+            stage1.process(sample)
         )
     }
 }
@@ -2924,119 +2368,77 @@ private class KWeightingFilter(
 // ===========================================================================
 
 private class Biquad(
-    private val b0:
-        Double,
-
-    private val b1:
-        Double,
-
-    private val b2:
-        Double,
-
-    private val a1:
-        Double,
-
-    private val a2:
-        Double
+    private val b0: Double,
+    private val b1: Double,
+    private val b2: Double,
+    private val a1: Double,
+    private val a2: Double
 ) {
 
-    private var x1 =
-        0.0
-
-    private var x2 =
-        0.0
-
-    private var y1 =
-        0.0
-
-    private var y2 =
-        0.0
+    private var x1 = 0.0
+    private var x2 = 0.0
+    private var y1 = 0.0
+    private var y2 = 0.0
 
     fun process(
         x0: Double
     ): Double {
 
         val y0 =
-            b0 *
-            x0 +
-            b1 *
-            x1 +
-            b2 *
-            x2 -
-            a1 *
-            y1 -
-            a2 *
-            y2
+            b0 * x0 +
+                b1 * x1 +
+                b2 * x2 -
+                a1 * y1 -
+                a2 * y2
 
-        x2 =
-            x1
-
-        x1 =
-            x0
-
-        y2 =
-            y1
-
-        y1 =
-            y0
+        x2 = x1
+        x1 = x0
+        y2 = y1
+        y1 = y0
 
         return y0
     }
 }
 
 // ===========================================================================
-// MEDIDOR POR CANAL
+// MEDIDOR
 // ===========================================================================
 
 private class ChannelMeter(
-    private val blockSize:
-        Int
+    private val blockSize: Int
 ) {
 
     private val squaredBuffer =
-        DoubleArray(
-            blockSize
-        )
+        DoubleArray(blockSize)
 
-    private var writeIndex =
-        0
-
-    private var sumOfSquares =
-        0.0
+    private var writeIndex = 0
+    private var sumOfSquares = 0.0
 
     fun push(
-        filteredSample:
-            Double
+        filteredSample: Double
     ) {
 
         val square =
             filteredSample *
-            filteredSample
+                filteredSample
 
         sumOfSquares -=
-            squaredBuffer[
-                writeIndex
-            ]
+            squaredBuffer[writeIndex]
 
-        squaredBuffer[
-            writeIndex
-        ] =
+        squaredBuffer[writeIndex] =
             square
 
-        sumOfSquares +=
-            square
+        sumOfSquares += square
 
-        writeIndex =
-            (
-                writeIndex +
-                1
-            ) %
-            blockSize
+        writeIndex++
+
+        if (writeIndex >= blockSize) {
+            writeIndex = 0
+        }
     }
 
-    val meanSquare:
-        Double
+    val meanSquare: Double
         get() =
             sumOfSquares /
-            blockSize
+                blockSize
 }
