@@ -1266,6 +1266,10 @@ class _MainPlaybackControls extends StatelessWidget {
 /* SECONDARY CONTROLS                                                        */
 /* ========================================================================= */
 
+/* ========================================================================= */
+/* SECONDARY CONTROLS                                                        */
+/* ========================================================================= */
+
 class _SecondaryControls extends StatelessWidget {
   const _SecondaryControls();
 
@@ -1310,16 +1314,17 @@ class _SecondaryControls extends StatelessWidget {
               },
             ),
 
-            _PlayerOptionButton(
-              icon: state.is8DEnabled
-                  ? Icons.surround_sound_rounded
-                  : Icons.surround_sound_outlined,
-              label: '',
-              isActive: state.is8DEnabled,
-              onPressed: () {
-                unawaited(controller.toggle8D());
-              },
-            ),
+            if (Platform.isAndroid)
+              _PlayerOptionButton(
+                icon: state.is8DEnabled
+                    ? Icons.surround_sound_rounded
+                    : Icons.surround_sound_outlined,
+                label: '',
+                isActive: state.is8DEnabled,
+                onPressed: () {
+                  unawaited(controller.toggle8D());
+                },
+              ),
 
             _PlayerOptionButton(
               icon: Icons.queue_music_rounded,

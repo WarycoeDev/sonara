@@ -96,6 +96,17 @@ class AudioPlayerService {
 
   bool get is8DEnabled => _8DEnabled;
 
+  /// La UI/controlador escuchan esto para reflejar el estado real del 8D.
+  final ValueNotifier<bool> eightDEnabledNotifier = ValueNotifier<bool>(false);
+
+  void _setEightDState(bool value) {
+    _8DEnabled = value;
+
+    if (!_isDisposed && eightDEnabledNotifier.value != value) {
+      eightDEnabledNotifier.value = value;
+    }
+  }
+
   // ============================================================
   // OPERACIONES
   // ============================================================
@@ -474,11 +485,11 @@ class AudioPlayerService {
         return;
       }
 
-      _8DEnabled = prefs.getBool(_8DPreferenceKey) ?? false;
+      _setEightDState(prefs.getBool(_8DPreferenceKey) ?? false);
 
       final sessionId = _player.androidAudioSessionId;
 
-      if (sessionId != null) {
+      if (sessionId != null && sessionId > 0) {
         await _connect8DSession(sessionId);
       }
     } catch (error) {
@@ -512,10 +523,18 @@ class AudioPlayerService {
         return;
       }
 
-      await _nativeMusicChannel.invokeMethod<bool>(
-        'set8DEnabled',
-        <String, dynamic>{'enabled': _8DEnabled},
-      );
+      final applied =
+          await _nativeMusicChannel.invokeMethod<bool>(
+            'set8DEnabled',
+            <String, dynamic>{'enabled': _8DEnabled},
+          ) ??
+          false;
+
+      // Si estaba guardado como activo pero el dispositivo no lo soporta,
+      // la UI no debe mostrarlo encendido.
+      if (_8DEnabled && !applied) {
+        _setEightDState(false);
+      }
     } catch (error) {
       debugPrint('[SONARA 8D] Error conectando sesión: $error');
     }
@@ -527,14 +546,25 @@ class AudioPlayerService {
     }
 
     try {
-      final supported =
+      // Si just_audio ya tiene sesión pero el nativo aún no la recibió,
+      // la mandamos antes de activar el efecto.
+      final sessionId = _player.androidAudioSessionId;
+
+      if (enabled && sessionId != null && sessionId > 0) {
+        await _nativeMusicChannel.invokeMethod<bool>(
+          'set8DAudioSession',
+          <String, dynamic>{'sessionId': sessionId},
+        );
+      }
+
+      final applied =
           await _nativeMusicChannel.invokeMethod<bool>(
             'set8DEnabled',
             <String, dynamic>{'enabled': enabled},
           ) ??
           false;
 
-      if (enabled && !supported) {
+      if (enabled && !applied) {
         return false;
       }
 
@@ -542,7 +572,7 @@ class AudioPlayerService {
         return false;
       }
 
-      _8DEnabled = enabled;
+      _setEightDState(enabled);
 
       final prefs = await SharedPreferences.getInstance();
 
@@ -2095,6 +2125,10 @@ class AudioPlayerService {
 
     try {
       replayGainPreampNotifier.dispose();
+    } catch (_) {}
+
+    try {
+      eightDEnabledNotifier.dispose();
     } catch (_) {}
 
     try {

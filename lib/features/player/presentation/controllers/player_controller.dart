@@ -106,6 +106,8 @@ class PlayerController extends ChangeNotifier {
 
     _is8DEnabled = _audioPlayerService.is8DEnabled;
 
+    _audioPlayerService.eightDEnabledNotifier.addListener(_handleEightDChanged);
+
     _audioPlayerService.setPlaybackModes(
       shuffleEnabled: _isShuffleEnabled,
       repeatMode: _repeatMode.index,
@@ -1044,22 +1046,25 @@ class PlayerController extends ChangeNotifier {
     _notify();
   }
 
+  void _handleEightDChanged() {
+    if (_isDisposed) {
+      return;
+    }
+    final value = _audioPlayerService.is8DEnabled;
+    if (_is8DEnabled == value) {
+      return;
+    }
+    _is8DEnabled = value;
+    _notify();
+  }
+
   Future<void> toggle8D() async {
     if (_isDisposed) {
       return;
     }
-
-    final nextValue = !_is8DEnabled;
-
-    final applied = await _audioPlayerService.set8DEnabled(nextValue);
-
-    if (!applied) {
-      return;
-    }
-
-    _is8DEnabled = nextValue;
-
-    _notify();
+    // El estado se actualiza solo a través de eightDEnabledNotifier,
+    // así la UI siempre refleja lo que realmente quedó aplicado.
+    await _audioPlayerService.set8DEnabled(!_is8DEnabled);
   }
 
   void setRepeatMode(SonaraRepeatMode mode) {
@@ -1642,6 +1647,10 @@ class PlayerController extends ChangeNotifier {
     _playerStateSubscription?.cancel();
 
     _currentIndexSubscription?.cancel();
+
+    _audioPlayerService.eightDEnabledNotifier.removeListener(
+      _handleEightDChanged,
+    );
 
     unawaited(_audioPlayerService.dispose());
 
