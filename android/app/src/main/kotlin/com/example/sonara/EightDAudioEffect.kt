@@ -32,7 +32,7 @@ class EightDAudioEffect {
         private const val MIN_API = Build.VERSION_CODES.P
 
         /** Tiempo de una vuelta completa. */
-        private const val CYCLE_MS = 8000L
+        private const val CYCLE_MS = 12000L
 
         /** ~30 Hz. */
         private const val TICK_MS = 33L
