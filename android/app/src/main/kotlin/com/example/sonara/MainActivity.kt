@@ -1,15 +1,11 @@
-
 package com.example.sonara
 
 import android.Manifest
 import android.content.ContentValues
 import android.content.Intent
 import android.content.pm.PackageManager
-import android.media.AudioFormat
-import android.media.MediaCodec
-import android.media.MediaExtractor
-import android.media.MediaFormat
 import android.media.MediaMetadataRetriever
+import android.media.MediaScannerConnection
 import android.net.Uri
 import android.os.Build
 import android.os.Environment
@@ -21,11 +17,6 @@ import com.ryanheise.audioservice.AudioServiceActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 import java.io.File
-import java.nio.ByteOrder
-import kotlin.math.PI
-import kotlin.math.log10
-import kotlin.math.pow
-import kotlin.math.tan
 
 class MainActivity : AudioServiceActivity() {
 
@@ -38,6 +29,7 @@ class MainActivity : AudioServiceActivity() {
     private var pendingMediaStoreResult: MethodChannel.Result? = null
     private var pendingMediaStoreUri: Uri? = null
     private var pendingMediaStoreTempPath: String? = null
+    private var pendingMediaStoreSourcePath: String? = null
 
     private val supportedExtensions = setOf(
         "mp3",
@@ -72,15 +64,28 @@ class MainActivity : AudioServiceActivity() {
 
                 "getLibraryFiles" -> {
 
-                    try {
-                        result.success(getLibraryFiles())
-                    } catch (exception: Exception) {
-                        result.error(
-                            "LIBRARY_FILES_QUERY_ERROR",
-                            exception.message,
-                            null
-                        )
-                    }
+                    // Se ejecuta fuera del hilo principal para no bloquear la UI.
+                    Thread {
+                        try {
+                            var files = queryLibraryFromMediaStore()
+
+                            // Respaldo: si MediaStore aún no indexó nada,
+                            // se escanea el disco como antes.
+                            if (files.isEmpty()) {
+                                files = scanLibraryFromDisk()
+                            }
+
+                            runOnUiThread { result.success(files) }
+                        } catch (exception: Exception) {
+                            runOnUiThread {
+                                result.error(
+                                    "LIBRARY_FILES_QUERY_ERROR",
+                                    exception.message,
+                                    null
+                                )
+                            }
+                        }
+                    }.start()
                 }
 
                 "getSongMetadata" -> {
@@ -198,6 +203,22 @@ class MainActivity : AudioServiceActivity() {
     // MEDIASTORE
     // =========================================================================
 
+    /**
+     * Pide al MediaScanner que reindexe el archivo para que MediaStore
+     * actualice duración, tamaño y metadatos después de un reemplazo.
+     */
+    private fun refreshMediaStore(path: String) {
+        try {
+            MediaScannerConnection.scanFile(
+                this,
+                arrayOf(path),
+                null,
+                null
+            )
+        } catch (_: Exception) {
+        }
+    }
+
     private fun replaceMediaStoreAudio(
         sourcePath: String,
         temporaryPath: String,
@@ -263,6 +284,8 @@ class MainActivity : AudioServiceActivity() {
 
                 temporaryFile.delete()
 
+                refreshMediaStore(sourcePath)
+
                 android.util.Log.d(
                     "SONARA_MEDIASTORE",
                     "Audio reemplazado correctamente."
@@ -282,6 +305,7 @@ class MainActivity : AudioServiceActivity() {
 
                     requestMediaStoreWritePermission(
                         mediaUri = mediaUri,
+                        sourcePath = sourcePath,
                         temporaryPath = temporaryPath,
                         result = result
                     )
@@ -433,6 +457,7 @@ class MainActivity : AudioServiceActivity() {
 
     private fun requestMediaStoreWritePermission(
         mediaUri: Uri,
+        sourcePath: String,
         temporaryPath: String,
         result: MethodChannel.Result
     ) {
@@ -459,6 +484,7 @@ class MainActivity : AudioServiceActivity() {
             pendingMediaStoreResult = result
             pendingMediaStoreUri = mediaUri
             pendingMediaStoreTempPath = temporaryPath
+            pendingMediaStoreSourcePath = sourcePath
 
             android.util.Log.d(
                 "SONARA_MEDIASTORE",
@@ -479,6 +505,7 @@ class MainActivity : AudioServiceActivity() {
             pendingMediaStoreResult = null
             pendingMediaStoreUri = null
             pendingMediaStoreTempPath = null
+            pendingMediaStoreSourcePath = null
 
             result.error(
                 "MEDIASTORE_WRITE_REQUEST_ERROR",
@@ -511,10 +538,12 @@ class MainActivity : AudioServiceActivity() {
         val result = pendingMediaStoreResult
         val mediaUri = pendingMediaStoreUri
         val temporaryPath = pendingMediaStoreTempPath
+        val sourcePath = pendingMediaStoreSourcePath
 
         pendingMediaStoreResult = null
         pendingMediaStoreUri = null
         pendingMediaStoreTempPath = null
+        pendingMediaStoreSourcePath = null
 
         if (
             result == null ||
@@ -557,6 +586,10 @@ class MainActivity : AudioServiceActivity() {
                 )
 
                 temporaryFile.delete()
+
+                if (sourcePath != null) {
+                    refreshMediaStore(sourcePath)
+                }
 
                 runOnUiThread {
                     result.success(true)
@@ -639,6 +672,8 @@ class MainActivity : AudioServiceActivity() {
                 }
 
                 backupFile.delete()
+
+                refreshMediaStore(sourcePath)
 
                 result.success(true)
 
@@ -845,6 +880,8 @@ class MainActivity : AudioServiceActivity() {
             }
         }
 
+        refreshMediaStore(destinationFile.absolutePath)
+
         return destinationFile.absolutePath
     }
 
@@ -944,8 +981,116 @@ class MainActivity : AudioServiceActivity() {
     // BIBLIOTECA
     // =========================================================================
 
-    private fun getLibraryFiles():
-        List<Map<String, Any?>> {
+    /**
+     * Consulta rápida al índice de MediaStore (una sola query).
+     * Devuelve también título, artista, álbum y duración, con las mismas
+     * claves que getSongMetadata, para no tener que pedirlos canción por canción.
+     */
+    private fun queryLibraryFromMediaStore(): List<Map<String, Any?>> {
+
+        val root = Environment.getExternalStorageDirectory().absolutePath
+        val roots = listOf(
+            "$root/${Environment.DIRECTORY_MUSIC}/",
+            "$root/${Environment.DIRECTORY_DOWNLOADS}/"
+        )
+
+        val collection =
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                MediaStore.Audio.Media.getContentUri(MediaStore.VOLUME_EXTERNAL_PRIMARY)
+            } else {
+                MediaStore.Audio.Media.EXTERNAL_CONTENT_URI
+            }
+
+        val projection = arrayOf(
+            MediaStore.Audio.Media.DATA,
+            MediaStore.Audio.Media.TITLE,
+            MediaStore.Audio.Media.ARTIST,
+            MediaStore.Audio.Media.ALBUM,
+            MediaStore.Audio.Media.DURATION,
+            MediaStore.Audio.Media.SIZE,
+            MediaStore.Audio.Media.DATE_MODIFIED
+        )
+
+        val selection = roots.joinToString(" OR ") {
+            "${MediaStore.Audio.Media.DATA} LIKE ?"
+        }
+        val selectionArgs = roots.map { "$it%" }.toTypedArray()
+
+        val files = ArrayList<Map<String, Any?>>(1024)
+
+        contentResolver.query(
+            collection,
+            projection,
+            selection,
+            selectionArgs,
+            null
+        )?.use { cursor ->
+
+            val dataCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATA)
+            val titleCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.TITLE)
+            val artistCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ARTIST)
+            val albumCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.ALBUM)
+            val durationCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DURATION)
+            val sizeCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.SIZE)
+            val modifiedCol = cursor.getColumnIndexOrThrow(MediaStore.Audio.Media.DATE_MODIFIED)
+
+            while (cursor.moveToNext()) {
+
+                val path = cursor.getString(dataCol) ?: continue
+
+                val extension = path.substringAfterLast('.', "").lowercase()
+                if (extension !in supportedExtensions) continue
+
+                val matchedRoot = roots.firstOrNull { path.startsWith(it) } ?: continue
+
+                // Ignorar carpetas/archivos ocultos (igual que el escaneo por disco)
+                val isHidden = path
+                    .removePrefix(matchedRoot)
+                    .split('/')
+                    .any { it.startsWith(".") }
+                if (isHidden) continue
+
+                val lastModified = cursor.getLong(modifiedCol) * 1000L
+
+                val title = cursor.getString(titleCol)
+                    ?.takeIf { it.isNotBlank() }
+                    ?: File(path).nameWithoutExtension
+
+                val artist = cursor.getString(artistCol)
+                    ?.takeIf { it != MediaStore.UNKNOWN_STRING }
+
+                val album = cursor.getString(albumCol)
+                    ?.takeIf { it != MediaStore.UNKNOWN_STRING }
+
+                files.add(
+                    mapOf(
+                        "id" to path,
+                        "filePath" to path,
+                        "title" to title,
+                        "artist" to artist,
+                        "album" to album,
+                        "duration" to cursor.getLong(durationCol),
+                        "dateAdded" to lastModified,
+                        "lastModified" to lastModified,
+                        "fileSize" to cursor.getLong(sizeCol)
+                    )
+                )
+            }
+        }
+
+        android.util.Log.d(
+            "SONARA_ANDROID_SCAN",
+            "MediaStore: ${files.size} archivos"
+        )
+
+        return files
+    }
+
+    /**
+     * Respaldo: escaneo original por disco. No trae metadatos,
+     * solo filePath, lastModified y fileSize.
+     */
+    private fun scanLibraryFromDisk(): List<Map<String, Any?>> {
 
         val files =
             mutableListOf<Map<String, Any?>>()
@@ -953,31 +1098,25 @@ class MainActivity : AudioServiceActivity() {
         val externalStorage =
             Environment.getExternalStorageDirectory()
 
-        val musicDirectory =
-            File(
+        scanLibraryFiles(
+            directory = File(
                 externalStorage,
                 Environment.DIRECTORY_MUSIC
-            )
-
-        val downloadDirectory =
-            File(
-                externalStorage,
-                Environment.DIRECTORY_DOWNLOADS
-            )
-
-        scanLibraryFiles(
-            directory = musicDirectory,
+            ),
             files = files
         )
 
         scanLibraryFiles(
-            directory = downloadDirectory,
+            directory = File(
+                externalStorage,
+                Environment.DIRECTORY_DOWNLOADS
+            ),
             files = files
         )
 
         android.util.Log.d(
             "SONARA_ANDROID_SCAN",
-            "Escaneo terminado. Archivos encontrados: ${files.size}"
+            "Escaneo por disco terminado. Archivos encontrados: ${files.size}"
         )
 
         return files

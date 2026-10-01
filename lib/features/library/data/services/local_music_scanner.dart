@@ -1,5 +1,10 @@
 import 'dart:io';
+import 'dart:isolate';
 
+/// Escáner de música para escritorio (Linux/Windows).
+///
+/// En Android se recomienda usar `getLibraryFiles` por MethodChannel, que
+/// consulta MediaStore y ya devuelve los metadatos.
 class LocalMusicScanner {
   static const Set<String> _supportedExtensions = {
     '.mp3',
@@ -10,114 +15,69 @@ class LocalMusicScanner {
     '.ogg',
   };
 
-  Future<List<File>> scanDirectory(String directoryPath) async {
-    final directory = Directory(directoryPath);
-
-    try {
-      if (!await directory.exists()) {
-        print('[SCANNER] El directorio no existe: $directoryPath');
-        return const <File>[];
-      }
-
-      final audioFiles = <File>[];
-
-      await for (final entity in directory.list(
-        recursive: true,
-        followLinks: false,
-      )) {
-        if (entity is! File) {
-          continue;
-        }
-
-        final path = entity.path;
-
-        if (_isHiddenPath(path, directoryPath)) {
-          print('[SCANNER IGNORADO - Oculto]: $path');
-          continue;
-        }
-
-        if (!_isAudioFile(path)) {
-          continue;
-        }
-
-        print('[SCANNER DETECTADO]: $path');
-        audioFiles.add(entity);
-      }
-
-      return List<File>.unmodifiable(audioFiles);
-    } on FileSystemException catch (e) {
-      print('[SCANNER ERROR DE SISTEMA] en $directoryPath: $e');
-      return const <File>[];
-    }
-  }
+  Future<List<File>> scanDirectory(String directoryPath) =>
+      scanDirectories(<String>[directoryPath]);
 
   Future<List<File>> scanDirectories(List<String> directoryPaths) async {
-    final audioFiles = <File>[];
-    final scannedPaths = <String>{};
+    // Un isolate por directorio raíz, en paralelo y sin bloquear la UI.
+    final results = await Future.wait(
+      directoryPaths.map((root) => Isolate.run(() => _scanRoot(root))),
+    );
 
-    for (final directoryPath in directoryPaths) {
-      final files = await scanDirectory(directoryPath);
+    final seen = <String>{};
+    final files = <File>[];
 
-      for (final file in files) {
-        if (scannedPaths.add(file.path)) {
-          audioFiles.add(file);
-        } else {
-          print('[SCANNER DUPLICADO OMITIDO]: ${file.path}');
+    for (final paths in results) {
+      for (final path in paths) {
+        if (seen.add(path)) {
+          files.add(File(path));
         }
       }
     }
 
-    return List<File>.unmodifiable(audioFiles);
+    return List<File>.unmodifiable(files);
   }
 
-  bool _isAudioFile(String filePath) {
-    final lastDotIndex = filePath.lastIndexOf('.');
+  // Métodos estáticos: el isolate no necesita capturar `this`.
+  static List<String> _scanRoot(String rootPath) {
+    final output = <String>[];
+    _walk(Directory(rootPath), output);
+    return output;
+  }
 
-    if (lastDotIndex <= 0) {
+  static void _walk(Directory directory, List<String> output) {
+    final List<FileSystemEntity> entries;
+
+    try {
+      entries = directory.listSync(followLinks: false);
+    } on FileSystemException {
+      return; // Sin permisos o el directorio no existe.
+    }
+
+    for (final entity in entries) {
+      final path = entity.path;
+      final name = path.substring(path.lastIndexOf(Platform.pathSeparator) + 1);
+
+      // Oculto: no se entra a la carpeta ni se evalúa el archivo.
+      if (name.startsWith('.')) {
+        continue;
+      }
+
+      if (entity is Directory) {
+        _walk(entity, output);
+      } else if (entity is File && _isAudioFile(name)) {
+        output.add(path);
+      }
+    }
+  }
+
+  static bool _isAudioFile(String fileName) {
+    final dot = fileName.lastIndexOf('.');
+
+    if (dot <= 0) {
       return false;
     }
 
-    final extension = filePath.substring(lastDotIndex).toLowerCase();
-
-    return _supportedExtensions.contains(extension);
-  }
-
-  bool _isHiddenPath(String path, String rootPath) {
-    if (path.length <= rootPath.length) {
-      return false;
-    }
-
-    var relativePath = path.substring(rootPath.length);
-
-    if (relativePath.startsWith(Platform.pathSeparator)) {
-      relativePath = relativePath.substring(1);
-    }
-
-    var start = 0;
-
-    while (true) {
-      final separatorIndex = relativePath.indexOf(
-        Platform.pathSeparator,
-        start,
-      );
-
-      final end = separatorIndex == -1 ? relativePath.length : separatorIndex;
-
-      if (end > start) {
-        final part = relativePath.substring(start, end);
-
-        if (part.startsWith('.')) {
-          return true;
-        }
-      }
-
-      if (separatorIndex == -1) {
-        break;
-      }
-
-      start = separatorIndex + 1;
-    }
-
-    return false;
+    return _supportedExtensions.contains(fileName.substring(dot).toLowerCase());
   }
 }
