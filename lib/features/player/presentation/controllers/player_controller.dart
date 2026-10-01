@@ -43,6 +43,8 @@ class PlayerController extends ChangeNotifier {
 
   bool _isShuffleEnabled = false;
 
+  bool _is8DEnabled = false;
+
   bool _isFavorite = false;
 
   bool _isHandlingCompletion = false;
@@ -102,6 +104,8 @@ class PlayerController extends ChangeNotifier {
 
     _favoritesRepository.initialize();
 
+    _is8DEnabled = _audioPlayerService.is8DEnabled;
+
     _audioPlayerService.setPlaybackModes(
       shuffleEnabled: _isShuffleEnabled,
       repeatMode: _repeatMode.index,
@@ -119,6 +123,8 @@ class PlayerController extends ChangeNotifier {
   bool get isPlaying => _isPlaying;
 
   bool get isShuffleEnabled => _isShuffleEnabled;
+
+  bool get is8DEnabled => _is8DEnabled;
 
   bool get isFavorite => _isFavorite;
 
@@ -1034,6 +1040,24 @@ class PlayerController extends ChangeNotifier {
       shuffleEnabled: _isShuffleEnabled,
       repeatMode: _repeatMode.index,
     );
+
+    _notify();
+  }
+
+  Future<void> toggle8D() async {
+    if (_isDisposed) {
+      return;
+    }
+
+    final nextValue = !_is8DEnabled;
+
+    final applied = await _audioPlayerService.set8DEnabled(nextValue);
+
+    if (!applied) {
+      return;
+    }
+
+    _is8DEnabled = nextValue;
 
     _notify();
   }

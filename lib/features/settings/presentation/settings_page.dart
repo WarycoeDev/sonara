@@ -16,7 +16,7 @@ import '../../player/data/services/audio_player_service.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
-  static const String _appVersion = '2.3.0';
+  static const String _appVersion = '2.4.2';
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();

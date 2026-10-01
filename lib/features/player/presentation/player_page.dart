@@ -1273,12 +1273,18 @@ class _SecondaryControls extends StatelessWidget {
   Widget build(BuildContext context) {
     return Selector<
       PlayerController,
-      ({bool shuffle, SonaraRepeatMode repeatMode, bool isFavorite})
+      ({
+        bool shuffle,
+        SonaraRepeatMode repeatMode,
+        bool isFavorite,
+        bool is8DEnabled,
+      })
     >(
       selector: (_, controller) => (
         shuffle: controller.isShuffleEnabled,
         repeatMode: controller.repeatMode,
         isFavorite: controller.isFavorite,
+        is8DEnabled: controller.is8DEnabled,
       ),
       builder: (context, state, child) {
         final controller = context.read<PlayerController>();
@@ -1301,6 +1307,17 @@ class _SecondaryControls extends StatelessWidget {
               isActive: state.repeatMode != SonaraRepeatMode.off,
               onPressed: () {
                 _showRepeatModes(context);
+              },
+            ),
+
+            _PlayerOptionButton(
+              icon: state.is8DEnabled
+                  ? Icons.surround_sound_rounded
+                  : Icons.surround_sound_outlined,
+              label: '',
+              isActive: state.is8DEnabled,
+              onPressed: () {
+                unawaited(controller.toggle8D());
               },
             ),
 
