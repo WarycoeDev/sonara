@@ -37,7 +37,6 @@ class LocalMusicScanner {
         }
 
         if (!_isAudioFile(path)) {
-          print('[SCANNER IGNORADO - Extensión no válida]: $path');
           continue;
         }
 

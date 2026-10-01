@@ -1,3 +1,4 @@
+
 package com.example.sonara
 
 import android.Manifest
@@ -104,6 +105,7 @@ class MainActivity : AudioServiceActivity() {
 
                 // =============================================================
                 // ESCANEO DE BIBLIOTECA
+                // SOLO MUSIC + DOWNLOAD
                 // =============================================================
 
                 "getLibraryFiles" -> {
@@ -1210,6 +1212,7 @@ class MainActivity : AudioServiceActivity() {
 
     // =========================================================================
     // ARCHIVOS DE LA BIBLIOTECA
+    // SOLO MUSIC + DOWNLOAD
     // =========================================================================
 
     private fun getLibraryFiles():
@@ -1218,13 +1221,52 @@ class MainActivity : AudioServiceActivity() {
         val files =
             mutableListOf<Map<String, Any?>>()
 
-        val storageRoot =
-            Environment
-                .getExternalStorageDirectory()
+        val externalStorage =
+            Environment.getExternalStorageDirectory()
+
+        val musicDirectory =
+            File(
+                externalStorage,
+                Environment.DIRECTORY_MUSIC
+            )
+
+        val downloadDirectory =
+            File(
+                externalStorage,
+                Environment.DIRECTORY_DOWNLOADS
+            )
+
+        android.util.Log.d(
+            "SONARA_ANDROID_SCAN",
+            "Escaneando únicamente Music: ${musicDirectory.absolutePath}"
+        )
+
+        android.util.Log.d(
+            "SONARA_ANDROID_SCAN",
+            "Escaneando únicamente Download: ${downloadDirectory.absolutePath}"
+        )
+
+        // =====================================================================
+        // MUSIC
+        // =====================================================================
 
         scanLibraryFiles(
-            directory = storageRoot,
+            directory = musicDirectory,
             files = files
+        )
+
+        // =====================================================================
+        // DOWNLOAD
+        // =====================================================================
+
+        scanLibraryFiles(
+            directory = downloadDirectory,
+            files = files
+        )
+
+        android.util.Log.d(
+            "SONARA_ANDROID_SCAN",
+            "Escaneo terminado. Archivos encontrados: ${files.size}"
         )
 
         return files
@@ -1235,12 +1277,32 @@ class MainActivity : AudioServiceActivity() {
         files: MutableList<Map<String, Any?>>
     ) {
 
+        if (!directory.exists()) {
+
+            android.util.Log.d(
+                "SONARA_ANDROID_SCAN",
+                "Directorio no existe: ${directory.absolutePath}"
+            )
+
+            return
+        }
+
+        if (!directory.isDirectory) {
+            return
+        }
+
         val directoryFiles =
             try {
 
                 directory.listFiles()
 
-            } catch (_: Exception) {
+            } catch (exception: Exception) {
+
+                android.util.Log.w(
+                    "SONARA_ANDROID_SCAN",
+                    "No se pudo leer: ${directory.absolutePath}",
+                    exception
+                )
 
                 null
             }
@@ -1248,12 +1310,14 @@ class MainActivity : AudioServiceActivity() {
 
         for (file in directoryFiles) {
 
+            // =============================================================
+            // DIRECTORIO
+            // =============================================================
+
             if (file.isDirectory) {
 
-                if (
-                    file.name == "Android" ||
-                    file.name.startsWith(".")
-                ) {
+                // Ignorar carpetas ocultas.
+                if (file.name.startsWith(".")) {
                     continue
                 }
 
@@ -1265,6 +1329,10 @@ class MainActivity : AudioServiceActivity() {
                 continue
             }
 
+            // =============================================================
+            // ARCHIVO
+            // =============================================================
+
             if (!file.isFile) {
                 continue
             }
@@ -1273,11 +1341,17 @@ class MainActivity : AudioServiceActivity() {
                 file.extension.lowercase()
 
             if (
-                !supportedExtensions
-                    .contains(extension)
+                !supportedExtensions.contains(
+                    extension
+                )
             ) {
                 continue
             }
+
+            android.util.Log.d(
+                "SONARA_ANDROID_SCAN",
+                "Archivo encontrado: ${file.absolutePath}"
+            )
 
             files.add(
                 mapOf(
