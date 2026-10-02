@@ -1,12 +1,16 @@
+import 'dart:convert';
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
+import 'package:sonara/core/services/sonara_storage_service.dart';
 
 class CrossfadeService {
   CrossfadeService._();
 
   static final CrossfadeService instance = CrossfadeService._();
 
-  static const String _key = 'sonara_crossfade_seconds';
+  static const String _fileName = 'crossfade_settings.json';
 
   static const List<int> availableValues = [
     0,
@@ -26,30 +30,90 @@ class CrossfadeService {
 
   final ValueNotifier<int> secondsNotifier = ValueNotifier<int>(0);
 
+  bool _initialized = false;
+  Future<void>? _initializeFuture;
+
   int get seconds => secondsNotifier.value;
 
   bool get enabled => seconds > 0;
 
   Duration get duration => Duration(seconds: seconds);
 
-  Future<void> initialize() async {
-    final prefs = await SharedPreferences.getInstance();
+  /// Obtiene la referencia al archivo JSON de configuración en la carpeta `files`.
+  Future<File> _getStorageFile() async {
+    final filesDirectory = await SonaraStorageService.getFilesDirectory();
+    return File(p.join(filesDirectory.path, _fileName));
+  }
 
-    final savedValue = prefs.getInt(_key) ?? 0;
+  Future<void> initialize() {
+    if (_initialized) {
+      return Future<void>.value();
+    }
 
-    final safeValue = availableValues.contains(savedValue) ? savedValue : 0;
+    final currentInitialization = _initializeFuture;
 
-    secondsNotifier.value = safeValue;
+    if (currentInitialization != null) {
+      return currentInitialization;
+    }
+
+    final initialization = _performInitialize();
+
+    _initializeFuture = initialization;
+
+    return initialization.whenComplete(() {
+      if (identical(_initializeFuture, initialization)) {
+        _initializeFuture = null;
+      }
+    });
+  }
+
+  Future<void> _performInitialize() async {
+    try {
+      final file = await _getStorageFile();
+
+      if (await file.exists()) {
+        final content = await file.readAsString(encoding: utf8);
+
+        if (content.isNotEmpty) {
+          final decoded = jsonDecode(content);
+
+          if (decoded is Map<String, dynamic>) {
+            final savedValue = decoded['crossfade_seconds'];
+
+            if (savedValue is int && availableValues.contains(savedValue)) {
+              secondsNotifier.value = savedValue;
+            }
+          }
+        }
+      }
+
+      _initialized = true;
+    } catch (error) {
+      debugPrint('[CrossfadeService] Error al cargar configuración: $error');
+      _initialized = false;
+    }
   }
 
   Future<void> setSeconds(int value) async {
+    await initialize();
+
     final safeValue = availableValues.contains(value) ? value : 0;
 
     secondsNotifier.value = safeValue;
 
-    final prefs = await SharedPreferences.getInstance();
+    await _save();
+  }
 
-    await prefs.setInt(_key, safeValue);
+  Future<void> _save() async {
+    try {
+      final file = await _getStorageFile();
+
+      final data = {'crossfade_seconds': secondsNotifier.value};
+
+      await file.writeAsString(jsonEncode(data), encoding: utf8, flush: true);
+    } catch (error) {
+      debugPrint('[CrossfadeService] Error al guardar configuración: $error');
+    }
   }
 
   String get displayName {

@@ -3,12 +3,13 @@ import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
+import 'package:sonara/core/services/sonara_storage_service.dart';
 
 import '../../domain/models/playlist.dart';
 
 class PlaylistsRepository extends ChangeNotifier {
-  static const String _storageKey = 'sonara_playlists';
+  static const String _fileName = 'playlists.json';
 
   static const String playlistFileFormat = 'sonara_playlist';
   static const int playlistFileVersion = 1;
@@ -28,6 +29,13 @@ class PlaylistsRepository extends ChangeNotifier {
   bool _initialized = false;
 
   Future<void>? _initializeFuture;
+
+  /// Obtiene la referencia al archivo JSON en el directorio de persistencia.
+  Future<File> _getStorageFile() async {
+    final libraryDirectory =
+        await SonaraStorageService.getLibraryCacheDirectory();
+    return File(p.join(libraryDirectory.path, _fileName));
+  }
 
   Future<void> initialize() {
     if (_initialized) {
@@ -53,22 +61,24 @@ class PlaylistsRepository extends ChangeNotifier {
 
   Future<void> _performInitialize() async {
     try {
-      final preferences = await SharedPreferences.getInstance();
-
-      final rawData = preferences.getString(_storageKey);
+      final file = await _getStorageFile();
 
       final loadedPlaylists = <Playlist>[];
 
-      if (rawData != null && rawData.isNotEmpty) {
+      if (await file.exists()) {
         try {
-          final decoded = jsonDecode(rawData);
+          final content = await file.readAsString(encoding: utf8);
 
-          if (decoded is List) {
-            for (final item in decoded) {
-              if (item is Map) {
-                loadedPlaylists.add(
-                  Playlist.fromJson(Map<String, dynamic>.from(item)),
-                );
+          if (content.isNotEmpty) {
+            final decoded = jsonDecode(content);
+
+            if (decoded is List) {
+              for (final item in decoded) {
+                if (item is Map) {
+                  loadedPlaylists.add(
+                    Playlist.fromJson(Map<String, dynamic>.from(item)),
+                  );
+                }
               }
             }
           }
@@ -400,20 +410,22 @@ class PlaylistsRepository extends ChangeNotifier {
 
     _playlists.clear();
 
-    final preferences = await SharedPreferences.getInstance();
+    final file = await _getStorageFile();
 
-    await preferences.remove(_storageKey);
+    if (await file.exists()) {
+      await file.delete();
+    }
 
     notifyListeners();
   }
 
   Future<void> _save() async {
-    final preferences = await SharedPreferences.getInstance();
+    final file = await _getStorageFile();
 
     final data = _playlists
         .map((playlist) => playlist.toJson())
         .toList(growable: false);
 
-    await preferences.setString(_storageKey, jsonEncode(data));
+    await file.writeAsString(jsonEncode(data), encoding: utf8, flush: true);
   }
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:math' as math;
 
@@ -6,7 +7,8 @@ import 'package:audio_service/audio_service.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:just_audio/just_audio.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
+import 'package:sonara/core/services/sonara_storage_service.dart';
 
 import '../../../../app/crossfade_service.dart';
 import '../../../../app/playback_fade_layer.dart';
@@ -59,6 +61,50 @@ class AudioPlayerService {
   static final AudioPlayerService instance = AudioPlayerService._internal();
 
   factory AudioPlayerService() => instance;
+
+  // ============================================================
+  // ARCHIVO DE CONFIGURACIÓN JSON
+  // ============================================================
+
+  static const String _settingsFileName = 'audio_player_settings.json';
+
+  Future<File> _getStorageFile() async {
+    final filesDirectory = await SonaraStorageService.getFilesDirectory();
+    return File(p.join(filesDirectory.path, _settingsFileName));
+  }
+
+  Future<Map<String, dynamic>> _readSettings() async {
+    try {
+      final file = await _getStorageFile();
+      if (!await file.exists()) return <String, dynamic>{};
+
+      final content = await file.readAsString(encoding: utf8);
+      if (content.isEmpty) return <String, dynamic>{};
+
+      final decoded = jsonDecode(content);
+      if (decoded is Map<String, dynamic>) return decoded;
+      return <String, dynamic>{};
+    } catch (error) {
+      debugPrint('[AudioPlayerService] Error al leer configuración: $error');
+      return <String, dynamic>{};
+    }
+  }
+
+  Future<void> _writeSettings(Map<String, dynamic> newSettings) async {
+    try {
+      final current = await _readSettings();
+      current.addAll(newSettings);
+
+      final file = await _getStorageFile();
+      await file.writeAsString(
+        jsonEncode(current),
+        encoding: utf8,
+        flush: true,
+      );
+    } catch (error) {
+      debugPrint('[AudioPlayerService] Error al guardar configuración: $error');
+    }
+  }
 
   // ============================================================
   // PLAYER
@@ -206,9 +252,6 @@ class AudioPlayerService {
 
   int get crossfadeSeconds => _crossfadeService.seconds;
 
-  /// Solo informativo. El fade YA NO cambia cómo se reproducen o se completan
-  /// las canciones, así que el PlayerController no debe usarlo para decidir
-  /// nada sobre la lógica de reproducción.
   bool get isCrossfading => _crossfadeService.enabled;
 
   // ============================================================
@@ -221,15 +264,6 @@ class AudioPlayerService {
   // REPLAYGAIN
   // ============================================================
 
-  /*
-   * _baseVolume es el volumen solicitado por el usuario.
-   *
-   * Permitimos hasta 2.0.
-   *
-   * 1.0 = 100 %
-   * 1.5 = 150 %
-   * 2.0 = 200 %
-   */
   double _baseVolume = 1.0;
 
   static const double _maximumPlayerVolume = 2.0;
@@ -253,41 +287,17 @@ class AudioPlayerService {
 
   bool _androidLoudnessEnhancerReady = false;
 
-  /*
-   * Id de la canción para la que el ReplayGain ya está preparado.
-   *
-   * Se LEE en _handleNativeIndexChange: si el callback nativo llega tarde o
-   * duplicado para una pista que ya preparamos nosotros, se ignora.
-   *
-   * Se usa el id y no el índice porque los índices cambian al reordenar o
-   * eliminar de la cola.
-   */
   String? _preparedSongId;
 
   // ============================================================
   // VOLUMEN: UN SOLO ESCRITOR
   // ============================================================
 
-  /*
-   * El volumen final SIEMPRE se calcula desde el estado actual:
-   *
-   *   silencio (candados)  ×  volumen del usuario  ×  ReplayGain (solo Linux)
-   *                        ×  fade (capa externa)
-   *
-   * y solo _runVolumeLoop llama a _player.setVolume. Nadie más.
-   *
-   * Nunca se pasan índices/generaciones a la función que escribe: se lee lo
-   * que es verdad AHORA, no lo que era verdad cuando alguien la llamó.
-   */
-
   int _muteHolds = 0;
 
   _MuteHold _holdMute() {
     _muteHolds++;
-
-    // Fuerza que el 0.0 se escriba de verdad.
     _lastWrittenVolume = null;
-
     return _MuteHold();
   }
 
@@ -309,7 +319,6 @@ class AudioPlayerService {
 
   double? _lastWrittenVolume;
 
-  /// Pide que el volumen del player refleje el estado actual.
   Future<void> _syncVolume() {
     if (_isDisposed) {
       return Future<void>.value();
@@ -321,8 +330,6 @@ class AudioPlayerService {
   }
 
   Future<void> _runVolumeLoop() async {
-    // Cede un microtask para que _volumeLoop ya esté asignado antes de que el
-    // bucle pueda terminar.
     await Future<void>.value();
 
     try {
@@ -345,10 +352,7 @@ class AudioPlayerService {
           _lastWrittenVolume = null;
 
           if (!_isDisposed) {
-            debugPrint(
-              '[SONARA PLAYER] '
-              'Error setVolume: $error',
-            );
+            debugPrint('[SONARA PLAYER] Error setVolume: $error');
           }
         }
       }
@@ -370,10 +374,6 @@ class AudioPlayerService {
 
     final song = _songs[index];
 
-    /*
-     * Android: ReplayGain + Preamp los aplica el LoudnessEnhancer.
-     * Linux: se aplican aquí, sobre el volumen del player.
-     */
     final replayGain = Platform.isAndroid
         ? 1.0
         : _dbToLinear(_getTotalGainDb(song));
@@ -479,13 +479,14 @@ class AudioPlayerService {
     }
 
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final settings = await _readSettings();
 
       if (_isDisposed) {
         return;
       }
 
-      _setEightDState(prefs.getBool(_8DPreferenceKey) ?? false);
+      final saved8D = settings[_8DPreferenceKey];
+      _setEightDState(saved8D is bool ? saved8D : false);
 
       final sessionId = _player.androidAudioSessionId;
 
@@ -530,8 +531,6 @@ class AudioPlayerService {
           ) ??
           false;
 
-      // Si estaba guardado como activo pero el dispositivo no lo soporta,
-      // la UI no debe mostrarlo encendido.
       if (_8DEnabled && !applied) {
         _setEightDState(false);
       }
@@ -546,8 +545,6 @@ class AudioPlayerService {
     }
 
     try {
-      // Si just_audio ya tiene sesión pero el nativo aún no la recibió,
-      // la mandamos antes de activar el efecto.
       final sessionId = _player.androidAudioSessionId;
 
       if (enabled && sessionId != null && sessionId > 0) {
@@ -574,18 +571,11 @@ class AudioPlayerService {
 
       _setEightDState(enabled);
 
-      final prefs = await SharedPreferences.getInstance();
-
-      if (_isDisposed) {
-        return false;
-      }
-
-      await prefs.setBool(_8DPreferenceKey, enabled);
+      await _writeSettings({_8DPreferenceKey: enabled});
 
       return true;
     } catch (error) {
       debugPrint('[SONARA 8D] Error activando/desactivando: $error');
-
       return false;
     }
   }
@@ -605,11 +595,7 @@ class AudioPlayerService {
           return;
         }
 
-        debugPrint(
-          '[SONARA PLAYER] '
-          'Error en play(): $error',
-        );
-
+        debugPrint('[SONARA PLAYER] Error en play(): $error');
         debugPrintStack(stackTrace: stackTrace);
       }),
     );
@@ -633,10 +619,7 @@ class AudioPlayerService {
 
       _androidLoudnessEnhancerReady = true;
 
-      debugPrint(
-        '[SONARA REPLAYGAIN] '
-        'Android LoudnessEnhancer habilitado.',
-      );
+      debugPrint('[SONARA REPLAYGAIN] Android LoudnessEnhancer habilitado.');
 
       final index = currentIndex;
 
@@ -645,10 +628,8 @@ class AudioPlayerService {
       }
     } catch (error, stackTrace) {
       debugPrint(
-        '[SONARA REPLAYGAIN] '
-        'No se pudo habilitar LoudnessEnhancer: $error',
+        '[SONARA REPLAYGAIN] No se pudo habilitar LoudnessEnhancer: $error',
       );
-
       debugPrintStack(stackTrace: stackTrace);
 
       _androidLoudnessEnhancerReady = false;
@@ -665,7 +646,6 @@ class AudioPlayerService {
     }
 
     final song = _songs[index];
-
     final totalGainDb = _getTotalGainDb(song);
 
     try {
@@ -678,17 +658,12 @@ class AudioPlayerService {
       _preparedSongId = song.id;
 
       debugPrint(
-        '[SONARA REPLAYGAIN ANDROID] '
-        'Índice $index | '
-        '${song.title} | '
-        '${totalGainDb.toStringAsFixed(2)} dB',
+        '[SONARA REPLAYGAIN ANDROID] Índices $index | ${song.title} | ${totalGainDb.toStringAsFixed(2)} dB',
       );
     } catch (error, stackTrace) {
       debugPrint(
-        '[SONARA REPLAYGAIN ANDROID] '
-        'Error aplicando ganancia: $error',
+        '[SONARA REPLAYGAIN ANDROID] Error aplicando ganancia: $error',
       );
-
       debugPrintStack(stackTrace: stackTrace);
     }
   }
@@ -719,30 +694,27 @@ class AudioPlayerService {
 
   Future<void> _loadReplayGainPreamp() async {
     try {
-      final prefs = await SharedPreferences.getInstance();
+      final settings = await _readSettings();
 
       if (_isDisposed) {
         return;
       }
 
-      final saved = prefs.getDouble(_replayGainPreampPreferenceKey);
+      final saved = settings[_replayGainPreampPreferenceKey];
 
-      if (saved == null) {
-        return;
+      if (saved is num) {
+        final value = saved.toDouble().clamp(
+          _minimumPreampDb,
+          _maximumPreampDb,
+        );
+
+        _replayGainPreampDb = value;
+        replayGainPreampNotifier.value = value;
+
+        unawaited(_syncVolume());
       }
-
-      final value = saved.clamp(_minimumPreampDb, _maximumPreampDb).toDouble();
-
-      _replayGainPreampDb = value;
-
-      replayGainPreampNotifier.value = value;
-
-      unawaited(_syncVolume());
     } catch (error) {
-      debugPrint(
-        '[SONARA REPLAYGAIN] '
-        'Error cargando Preamp: $error',
-      );
+      debugPrint('[SONARA REPLAYGAIN] Error cargando Preamp: $error');
     }
   }
 
@@ -779,18 +751,9 @@ class AudioPlayerService {
     }
 
     try {
-      final prefs = await SharedPreferences.getInstance();
-
-      if (_isDisposed) {
-        return;
-      }
-
-      await prefs.setDouble(_replayGainPreampPreferenceKey, safeValue);
+      await _writeSettings({_replayGainPreampPreferenceKey: safeValue});
     } catch (error) {
-      debugPrint(
-        '[SONARA REPLAYGAIN] '
-        'Error guardando Preamp: $error',
-      );
+      debugPrint('[SONARA REPLAYGAIN] Error guardando Preamp: $error');
     }
   }
 
@@ -974,11 +937,7 @@ class AudioPlayerService {
         return;
       }
 
-      debugPrint(
-        '[SONARA PLAYER] '
-        'Error en fin de cola: $error',
-      );
-
+      debugPrint('[SONARA PLAYER] Error en fin de cola: $error');
       debugPrintStack(stackTrace: stackTrace);
     } finally {
       _releaseMute(hold);
@@ -1078,19 +1037,11 @@ class AudioPlayerService {
 
       return loadedDuration ?? await _waitForDuration();
     } on PlayerInterruptedException catch (error) {
-      debugPrint(
-        '[SONARA LINUX] '
-        'Carga interrumpida: $error',
-      );
-
+      debugPrint('[SONARA LINUX] Carga interrumpida: $error');
       return null;
     } catch (error, stackTrace) {
       if (!_isDisposed) {
-        debugPrint(
-          '[SONARA LINUX] '
-          'Error cargando ${song.title}: $error',
-        );
-
+        debugPrint('[SONARA LINUX] Error cargando ${song.title}: $error');
         debugPrintStack(stackTrace: stackTrace);
       }
 
@@ -1110,11 +1061,7 @@ class AudioPlayerService {
     final gainDb = _getTrackGainDb(song);
 
     debugPrint(
-      '[SONARA REPLAYGAIN] '
-      '${song.title} | '
-      'Gain=${gainDb.toStringAsFixed(2)} dB | '
-      'Preamp=${_replayGainPreampDb.toStringAsFixed(2)} dB | '
-      'Total=${_getTotalGainDb(song).toStringAsFixed(2)} dB',
+      '[SONARA REPLAYGAIN] ${song.title} | Gain=${gainDb.toStringAsFixed(2)} dB | Preamp=${_replayGainPreampDb.toStringAsFixed(2)} dB | Total=${_getTotalGainDb(song).toStringAsFixed(2)} dB',
     );
   }
 
@@ -1149,10 +1096,7 @@ class AudioPlayerService {
       await _player.setLoopMode(_repeatMode == 1 ? LoopMode.one : LoopMode.off);
     } catch (error) {
       if (!_isDisposed) {
-        debugPrint(
-          '[SONARA PLAYER] '
-          'Error LoopMode: $error',
-        );
+        debugPrint('[SONARA PLAYER] Error LoopMode: $error');
       }
     }
   }
@@ -1287,10 +1231,7 @@ class AudioPlayerService {
 
       final targetSong = _songs[index];
 
-      debugPrint(
-        '[SONARA PLAYER] '
-        'Cambio a [$index] ${targetSong.title}',
-      );
+      debugPrint('[SONARA PLAYER] Cambio a [$index] ${targetSong.title}');
 
       if (_isLinux) {
         _releaseMute(hold);

@@ -1,12 +1,14 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
+import 'package:sonara/core/services/sonara_storage_service.dart';
 
 import '../domain/models/song_statistics.dart';
 
 class StatisticsRepository extends ChangeNotifier {
-  static const String _storageKey = 'sonara_song_statistics';
+  static const String _fileName = 'statistics.json';
 
   static final StatisticsRepository _instance =
       StatisticsRepository._internal();
@@ -21,33 +23,71 @@ class StatisticsRepository extends ChangeNotifier {
 
   bool _initialized = false;
 
-  Future<void> initialize() async {
+  Future<void>? _initializeFuture;
+
+  /// Obtiene la referencia al archivo JSON de estadísticas en el directorio `files/library`.
+  Future<File> _getStorageFile() async {
+    final libraryDirectory =
+        await SonaraStorageService.getLibraryCacheDirectory();
+    return File(p.join(libraryDirectory.path, _fileName));
+  }
+
+  Future<void> initialize() {
     if (_initialized) {
-      return;
+      return Future<void>.value();
     }
 
-    final preferences = await SharedPreferences.getInstance();
+    final currentInitialization = _initializeFuture;
 
-    final rawData = preferences.getString(_storageKey);
+    if (currentInitialization != null) {
+      return currentInitialization;
+    }
 
-    if (rawData != null && rawData.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(rawData);
+    final initialization = _performInitialize();
 
-        if (decoded is Map<String, dynamic>) {
-          _statistics = decoded.map((key, value) {
-            return MapEntry(
-              key,
-              SongStatistics.fromJson(Map<String, dynamic>.from(value as Map)),
-            );
-          });
-        }
-      } catch (_) {
-        _statistics = {};
+    _initializeFuture = initialization;
+
+    return initialization.whenComplete(() {
+      if (identical(_initializeFuture, initialization)) {
+        _initializeFuture = null;
       }
-    }
+    });
+  }
 
-    _initialized = true;
+  Future<void> _performInitialize() async {
+    try {
+      final file = await _getStorageFile();
+
+      if (await file.exists()) {
+        try {
+          final content = await file.readAsString(encoding: utf8);
+
+          if (content.isNotEmpty) {
+            final decoded = jsonDecode(content);
+
+            if (decoded is Map<String, dynamic>) {
+              _statistics = decoded.map((key, value) {
+                return MapEntry(
+                  key,
+                  SongStatistics.fromJson(
+                    Map<String, dynamic>.from(value as Map),
+                  ),
+                );
+              });
+            }
+          }
+        } catch (_) {
+          _statistics = {};
+        }
+      }
+
+      _initialized = true;
+
+      notifyListeners();
+    } catch (_) {
+      _initialized = false;
+      rethrow;
+    }
   }
 
   Future<SongStatistics> registerPlay(String songId) async {
@@ -137,15 +177,17 @@ class StatisticsRepository extends ChangeNotifier {
 
     _statistics.clear();
 
-    final preferences = await SharedPreferences.getInstance();
+    final file = await _getStorageFile();
 
-    await preferences.remove(_storageKey);
+    if (await file.exists()) {
+      await file.delete();
+    }
 
     notifyListeners();
   }
 
   Future<void> _save() async {
-    final preferences = await SharedPreferences.getInstance();
+    final file = await _getStorageFile();
 
     final encoded = jsonEncode(
       _statistics.map((key, value) {
@@ -153,6 +195,6 @@ class StatisticsRepository extends ChangeNotifier {
       }),
     );
 
-    await preferences.setString(_storageKey, encoded);
+    await file.writeAsString(encoded, encoding: utf8, flush: true);
   }
 }

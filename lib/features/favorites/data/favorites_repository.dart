@@ -1,10 +1,12 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:shared_preferences/shared_preferences.dart';
+import 'package:path/path.dart' as p;
+import 'package:sonara/core/services/sonara_storage_service.dart';
 
 class FavoritesRepository extends ChangeNotifier {
-  static const String _storageKey = 'sonara_favorites';
+  static const String _fileName = 'favorites.json';
 
   static final FavoritesRepository _instance = FavoritesRepository._internal();
 
@@ -17,32 +19,67 @@ class FavoritesRepository extends ChangeNotifier {
   List<String> _favoriteIds = [];
 
   bool _initialized = false;
+  Future<void>? _initializeFuture;
 
   /// Propiedad opcional para indicar que este repositorio soporta reordenamiento explícito
   bool get hasReorderSupport => true;
 
-  Future<void> initialize() async {
+  /// Obtiene la referencia al archivo JSON en el directorio de la biblioteca.
+  Future<File> _getStorageFile() async {
+    final libraryDirectory =
+        await SonaraStorageService.getLibraryCacheDirectory();
+    return File(p.join(libraryDirectory.path, _fileName));
+  }
+
+  Future<void> initialize() {
     if (_initialized) {
-      return;
+      return Future<void>.value();
     }
 
-    final preferences = await SharedPreferences.getInstance();
+    final currentInitialization = _initializeFuture;
 
-    final rawData = preferences.getString(_storageKey);
+    if (currentInitialization != null) {
+      return currentInitialization;
+    }
 
-    if (rawData != null && rawData.isNotEmpty) {
-      try {
-        final decoded = jsonDecode(rawData);
+    final initialization = _performInitialize();
 
-        if (decoded is List) {
-          _favoriteIds = decoded.whereType<String>().toList();
-        }
-      } catch (_) {
-        _favoriteIds = [];
+    _initializeFuture = initialization;
+
+    return initialization.whenComplete(() {
+      if (identical(_initializeFuture, initialization)) {
+        _initializeFuture = null;
       }
-    }
+    });
+  }
 
-    _initialized = true;
+  Future<void> _performInitialize() async {
+    try {
+      final file = await _getStorageFile();
+
+      if (await file.exists()) {
+        try {
+          final content = await file.readAsString(encoding: utf8);
+
+          if (content.isNotEmpty) {
+            final decoded = jsonDecode(content);
+
+            if (decoded is List) {
+              _favoriteIds = decoded.whereType<String>().toList();
+            }
+          }
+        } catch (_) {
+          _favoriteIds = [];
+        }
+      }
+
+      _initialized = true;
+
+      notifyListeners();
+    } catch (_) {
+      _initialized = false;
+      rethrow;
+    }
   }
 
   List<String> get favoriteIds {
@@ -120,16 +157,22 @@ class FavoritesRepository extends ChangeNotifier {
 
     _favoriteIds.clear();
 
-    final preferences = await SharedPreferences.getInstance();
+    final file = await _getStorageFile();
 
-    await preferences.remove(_storageKey);
+    if (await file.exists()) {
+      await file.delete();
+    }
 
     notifyListeners();
   }
 
   Future<void> _save() async {
-    final preferences = await SharedPreferences.getInstance();
+    final file = await _getStorageFile();
 
-    await preferences.setString(_storageKey, jsonEncode(_favoriteIds));
+    await file.writeAsString(
+      jsonEncode(_favoriteIds),
+      encoding: utf8,
+      flush: true,
+    );
   }
 }
