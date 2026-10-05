@@ -7,7 +7,7 @@ plugins {
 }
 
 android {
-    namespace = "com.example.sonara"
+    namespace = "com.warycoe.sonara"
 
     compileSdk = flutter.compileSdkVersion
 
@@ -33,7 +33,7 @@ android {
     
 
     defaultConfig {
-        applicationId = "com.example.sonara"
+        applicationId = "com.warycoe.sonara"
 
         // extractor requiere Android API 24 o superior.
         minSdk = 24

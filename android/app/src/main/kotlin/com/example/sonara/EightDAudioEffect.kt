@@ -1,4 +1,4 @@
-package com.example.sonara
+package com.warycoe.sonara
 
 import android.media.audiofx.DynamicsProcessing
 import android.os.Build

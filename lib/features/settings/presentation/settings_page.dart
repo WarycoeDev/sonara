@@ -4,6 +4,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../app/crossfade_service.dart';
@@ -16,7 +17,6 @@ import '../../player/data/services/audio_player_service.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key});
-  static const String _appVersion = '2.5.0';
 
   @override
   State<SettingsPage> createState() => _SettingsPageState();
@@ -26,6 +26,26 @@ class _SettingsPageState extends State<SettingsPage> {
   ThemeMode get _themeMode => SonaraApp.themeModeNotifier.value;
 
   Locale? get _locale => SonaraApp.localeNotifier.value;
+
+  String _appVersion = '...';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadAppVersion();
+  }
+
+  Future<void> _loadAppVersion() async {
+    final packageInfo = await PackageInfo.fromPlatform();
+
+    if (!mounted) {
+      return;
+    }
+
+    setState(() {
+      _appVersion = packageInfo.version;
+    });
+  }
 
   String get _themeName {
     final l10n = AppLocalizations.of(context)!;
@@ -181,6 +201,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     value: ThemeMode.dark,
                     // ignore: deprecated_member_use
                     groupValue: currentThemeMode,
+                    // ignore: deprecated_member_use
                     onChanged: (value) async {
                       if (value == null) {
                         return;
@@ -473,9 +494,7 @@ class _SettingsPageState extends State<SettingsPage> {
           content: SingleChildScrollView(
             child: Text(
               'Sonara\n'
-              //'v&_appVersion\n\n'
-              'v'
-              '${SettingsPage._appVersion}\n\n'
+              'v$_appVersion\n\n'
               '${l10n.aboutSonaraDescription}\n\n'
               '• ${l10n.developer}: Warycoe\n'
               '• ${l10n.helper}: El Sabelotodo\n'
@@ -624,7 +643,7 @@ class _SettingsPageState extends State<SettingsPage> {
 
             Center(
               child: Text(
-                l10n.version(SettingsPage._appVersion),
+                l10n.version(_appVersion),
                 style: TextStyle(
                   fontSize: 11,
                   color: Theme.of(context).colorScheme.onSurfaceVariant,

@@ -1,4 +1,4 @@
-package com.example.sonara
+package com.warycoe.sonara
 
 import android.media.AudioFormat
 import android.media.MediaCodec

@@ -1,4 +1,4 @@
-package com.example.sonara
+package com.warycoe.sonara
 
 import android.Manifest
 import android.content.ContentValues
