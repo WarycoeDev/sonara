@@ -49,6 +49,8 @@
   "songs": "Songs",
   "albums": "Albums",
   "artists": "Artists",
+  "podcasts": "Podcasts",
+  "noPodcasts": "There are no podcasts in your library.",
   "playlists": "Playlists",
   "favorites": "Favorites",
   "music": "Music",

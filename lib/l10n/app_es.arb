@@ -78,6 +78,9 @@
 
   "noAlbums": "No hay álbumes en tu biblioteca.",
   "noArtists": "No hay artistas en tu biblioteca.",
+  "podcasts": "Podcasts",
+  "noPodcasts": "No hay podcasts en tu biblioteca.",
+
 
   "libraryEmpty": "Tu biblioteca está vacía",
   "scanMusicDescription": "Escanea tu carpeta de música para encontrar canciones.",

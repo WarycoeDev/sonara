@@ -213,6 +213,12 @@ class AppLocalizationsEs extends AppLocalizations {
   String get noArtists => 'No hay artistas en tu biblioteca.';
 
   @override
+  String get podcasts => 'Podcasts';
+
+  @override
+  String get noPodcasts => 'No hay podcasts en tu biblioteca.';
+
+  @override
   String get libraryEmpty => 'Tu biblioteca está vacía';
 
   @override

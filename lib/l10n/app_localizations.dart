@@ -470,6 +470,18 @@ abstract class AppLocalizations {
   /// **'No hay artistas en tu biblioteca.'**
   String get noArtists;
 
+  /// No description provided for @podcasts.
+  ///
+  /// In es, this message translates to:
+  /// **'Podcasts'**
+  String get podcasts;
+
+  /// No description provided for @noPodcasts.
+  ///
+  /// In es, this message translates to:
+  /// **'No hay podcasts en tu biblioteca.'**
+  String get noPodcasts;
+
   /// No description provided for @libraryEmpty.
   ///
   /// In es, this message translates to:

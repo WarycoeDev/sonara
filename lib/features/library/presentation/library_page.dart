@@ -17,7 +17,7 @@ import 'library_playlist_page.dart';
 import 'playlist_dialogs.dart';
 import 'song_options.dart';
 
-enum LibraryCategory { songs, albums, artists, playlists, favorites }
+enum LibraryCategory { songs, albums, artists, podcasts, playlists, favorites }
 
 const String _noAlbumKey = '__sonara_no_album__';
 const String _unknownArtistKey = '__sonara_unknown_artist__';
@@ -43,6 +43,7 @@ class _LibraryPageState extends State<LibraryPage> {
   List<Song> _songs = const [];
   List<Song> _favoriteSongs = const [];
   List<Album> _albums = const [];
+  List<Album> _podcasts = const [];
   List<Artist> _artists = const [];
   List<Playlist> _playlists = const [];
 
@@ -290,8 +291,26 @@ class _LibraryPageState extends State<LibraryPage> {
 
     final albumGroups = <String, List<Song>>{};
     final artistGroups = <String, List<Song>>{};
+    final podcastGroups = <String, List<Song>>{};
+
+    bool isPodcast(Song song) =>
+        song.filePath.replaceAll('\\', '/').toLowerCase().contains('/podcast/');
 
     for (final song in _songs) {
+      if (isPodcast(song)) {
+        final normalizedPath = song.filePath.replaceAll('\\', '/');
+        final parentPath = normalizedPath.substring(
+          0,
+          normalizedPath.lastIndexOf('/'),
+        );
+        final folderName = parentPath.substring(
+          parentPath.lastIndexOf('/') + 1,
+        );
+        final podcastName = folderName.isNotEmpty ? folderName : song.title;
+        (podcastGroups[podcastName] ??= <Song>[]).add(song);
+        continue;
+      }
+
       final rawAlbum = song.album?.trim();
 
       final albumName = rawAlbum != null && rawAlbum.isNotEmpty
@@ -335,7 +354,15 @@ class _LibraryPageState extends State<LibraryPage> {
           (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
         );
 
+    final podcasts =
+        podcastGroups.entries.map((entry) {
+          return Album(name: entry.key, songs: List.unmodifiable(entry.value));
+        }).toList()..sort(
+          (a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+        );
+
     _albums = List.unmodifiable(albums);
+    _podcasts = List.unmodifiable(podcasts);
     _artists = List.unmodifiable(artists);
 
     final songsById = <String, Song>{for (final song in _songs) song.id: song};
@@ -436,6 +463,15 @@ class _LibraryPageState extends State<LibraryPage> {
           : _displayArtistName(context, album.artist!),
       songs: album.songs,
       icon: Icons.album_outlined,
+    );
+  }
+
+  void _openPodcast(Album podcast) {
+    _openPlaylistPage(
+      title: podcast.name,
+      subtitle: AppLocalizations.of(context)!.songCount(podcast.songCount),
+      songs: podcast.songs,
+      icon: Icons.podcasts,
     );
   }
 
@@ -700,6 +736,9 @@ class _LibraryPageState extends State<LibraryPage> {
       case LibraryCategory.artists:
         return l10n.artists;
 
+      case LibraryCategory.podcasts:
+        return l10n.podcasts;
+
       case LibraryCategory.playlists:
         return l10n.playlists;
 
@@ -761,6 +800,9 @@ class _LibraryPageState extends State<LibraryPage> {
       case LibraryCategory.artists:
         return _buildArtistsContent();
 
+      case LibraryCategory.podcasts:
+        return _buildPodcastsContent();
+
       case LibraryCategory.playlists:
         return _buildPlaylistsContent();
 
@@ -770,7 +812,14 @@ class _LibraryPageState extends State<LibraryPage> {
   }
 
   Widget _buildSongsContent() {
-    if (_songs.isEmpty) {
+    final musicSongs = _songs
+        .where((song) {
+          final path = song.filePath.replaceAll('\\\\', '/').toLowerCase();
+          return !path.contains('/podcast/');
+        })
+        .toList(growable: false);
+
+    if (musicSongs.isEmpty) {
       return SliverPadding(
         padding: const EdgeInsets.symmetric(horizontal: 16),
         sliver: SliverToBoxAdapter(
@@ -783,7 +832,7 @@ class _LibraryPageState extends State<LibraryPage> {
     }
 
     return _SongsSliverList(
-      songs: _songs,
+      songs: musicSongs,
       isScanning: _isScanning,
       onScan: _scanMusic,
     );
@@ -835,6 +884,35 @@ class _LibraryPageState extends State<LibraryPage> {
             album: album,
             displayName: _displayAlbumName(context, album.name),
             onTap: () => _openAlbum(album),
+          );
+        },
+      ),
+    );
+  }
+
+  Widget _buildPodcastsContent() {
+    final l10n = AppLocalizations.of(context)!;
+
+    if (_podcasts.isEmpty) {
+      return SliverFillRemaining(
+        hasScrollBody: false,
+        child: Center(child: Text(l10n.noPodcasts)),
+      );
+    }
+
+    return SliverPadding(
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      sliver: SliverList.builder(
+        itemCount: _podcasts.length,
+        addAutomaticKeepAlives: false,
+        addRepaintBoundaries: true,
+        itemBuilder: (context, index) {
+          final podcast = _podcasts[index];
+          return _AlbumListTile(
+            album: podcast,
+            displayName: podcast.name,
+            onTap: () => _openPodcast(podcast),
+            fallbackIcon: Icons.podcasts,
           );
         },
       ),
@@ -1147,6 +1225,14 @@ class _LibraryCategories extends StatelessWidget {
           isSelected: selectedCategory == LibraryCategory.artists,
           onPressed: () {
             onSelectCategory(LibraryCategory.artists);
+          },
+        ),
+        _LibraryCategoryButton(
+          icon: Icons.podcasts,
+          label: l10n.podcasts,
+          isSelected: selectedCategory == LibraryCategory.podcasts,
+          onPressed: () {
+            onSelectCategory(LibraryCategory.podcasts);
           },
         ),
         _LibraryCategoryButton(
@@ -2312,11 +2398,13 @@ class _AlbumListTile extends StatelessWidget {
   final Album album;
   final String displayName;
   final VoidCallback onTap;
+  final IconData fallbackIcon;
 
   const _AlbumListTile({
     required this.album,
     required this.displayName,
     required this.onTap,
+    this.fallbackIcon = Icons.album_outlined,
   });
 
   @override
@@ -2362,7 +2450,7 @@ class _AlbumListTile extends StatelessWidget {
                   coverBytes: coverBytes,
                   size: 48,
                   borderRadius: 14,
-                  fallbackIcon: Icons.album_outlined,
+                  fallbackIcon: fallbackIcon,
                 ),
                 const SizedBox(width: 12),
                 Expanded(
