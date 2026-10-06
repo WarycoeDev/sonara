@@ -1302,7 +1302,8 @@ class MainActivity : AudioServiceActivity() {
         val roots =
             listOf(
                 "$root/${Environment.DIRECTORY_MUSIC}/",
-                "$root/${Environment.DIRECTORY_DOWNLOADS}/"
+                "$root/${Environment.DIRECTORY_DOWNLOADS}/",
+                "$root/Podcast/"
             )
 
         val collection =
@@ -1518,6 +1519,16 @@ class MainActivity : AudioServiceActivity() {
                 File(
                     externalStorage,
                     Environment.DIRECTORY_DOWNLOADS
+                ),
+            files =
+                files
+        )
+
+        scanLibraryFiles(
+            directory =
+                File(
+                    externalStorage,
+                    "Podcast"
                 ),
             files =
                 files

@@ -6,6 +6,7 @@ class MusicDirectoryService {
       return const <String>[
         '/storage/emulated/0/Music',
         '/storage/emulated/0/Download',
+        '/storage/emulated/0/Podcast',
       ];
     }
 
