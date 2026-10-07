@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:just_audio_background/just_audio_background.dart';
 import 'package:just_audio_media_kit/just_audio_media_kit.dart';
@@ -13,6 +14,8 @@ Future<void> main() async {
   await CrossfadeService.instance.initialize();
 
   JustAudioMediaKit.ensureInitialized();
+
+  await SystemChrome.setPreferredOrientations([DeviceOrientation.portraitUp]);
 
   await JustAudioBackground.init(
     androidNotificationChannelId: 'com.sonara.playback',
